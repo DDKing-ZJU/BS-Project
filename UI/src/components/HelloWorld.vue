@@ -287,19 +287,31 @@ export default {
     },
     async loginJd () {
       try {
-        const response = await axios.post('http://localhost:5000/api/jd/get_qr_code', {
+        const response = await axios.get('http://localhost:5000/api/jd/get_qr_code', {
           client_id: this.jdClientId || Date.now().toString()
         })
+        // debug response
+        console.log(response.data)
         if (response.data.status === 'success') {
-          this.jdQrCode = response.data.qr_code_url
+          this.jdSessionId = response.data.data.session_id
+          this.jdQrCode = response.data.data.qr_code_url
           this.jdShowQrCode = true
+          let retryCount = 0
+          const maxRetries = 30 // 最多尝试30次，即60秒
           // 开始轮询检查登录状态
           this.jdCheckLoginInterval = setInterval(async () => {
             try {
+              retryCount++
+              if (retryCount >= maxRetries) {
+                clearInterval(this.jdCheckLoginInterval)
+                this.jdShowQrCode = false
+                this.jdError = '登录超时，请重试'
+                return
+              }
               const statusResponse = await axios.post('http://localhost:5000/api/jd/check_login', {
-                client_id: this.jdClientId || Date.now().toString()
+                session_id: this.jdSessionId
               })
-              if (statusResponse.data.status === 'success' && statusResponse.data.logged_in) {
+              if (statusResponse.data.status === 'success') {
                 // 登录成功，停止轮询
                 clearInterval(this.jdCheckLoginInterval)
                 this.jdShowQrCode = false
@@ -313,6 +325,10 @@ export default {
                   localStorage.setItem('jd_client_id', accountResponse.data.client_id)
                   this.jdError = null
                 }
+              } else if (statusResponse.data.status === 'error') {
+                clearInterval(this.jdCheckLoginInterval)
+                this.jdShowQrCode = false
+                this.jdError = statusResponse.data.message
               }
             } catch (error) {
               console.error('检查京东登录状态错误:', error)

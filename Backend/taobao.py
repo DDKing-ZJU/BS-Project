@@ -88,7 +88,7 @@ def create_chrome_driver(headless=False):
 def get_qr_code():
     """获取淘宝登录二维码"""
     try:
-        driver = create_chrome_driver(headless=False)  # DEBUG
+        driver = create_chrome_driver(headless=True)  # DEBUG
         driver.get("https://login.taobao.com/member/login.jhtml")
         time.sleep(2)
         

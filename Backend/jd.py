@@ -15,6 +15,8 @@ import os
 import platform
 from datetime import datetime, timedelta
 import uuid
+from PIL import Image
+from io import BytesIO
 
 # 创建蓝图
 jd_bp = Blueprint('jd', __name__)
@@ -98,182 +100,230 @@ def update_session_activity(session_id):
     if session_id in client_sessions:
         client_sessions[session_id]['last_activity'] = datetime.now()
 
-@jd_bp.route('/get_qr_code', methods=['POST', 'OPTIONS'])
 def get_qr_code():
     """获取京东登录二维码"""
-    if request.method == 'OPTIONS':
-        response = make_response()
-        response.headers.add('Access-Control-Allow-Origin', 'http://localhost:8080')
-        response.headers.add('Access-Control-Allow-Headers', 'Content-Type,X-Client-ID')
-        response.headers.add('Access-Control-Allow-Methods', 'POST,OPTIONS')
-        response.headers.add('Access-Control-Allow-Credentials', 'true')
-        return response
-
     try:
-        # 清理过期会话
-        clean_expired_sessions()
-        
-        data = request.get_json()
-        client_id = data.get('client_id')
-        
-        if not client_id:
-            return jsonify({
-                'status': 'error',
-                'message': '缺少客户端ID'
-            }), 400
-        
         # 创建新的Chrome驱动
         driver = create_chrome_driver(headless=False)
         
-        try:
-            # 访问京东登录页面
-            driver.get('https://passport.jd.com/new/login.aspx')
-            
-            # 等待二维码图片加载
-            wait = WebDriverWait(driver, 10)
-            qr_img = wait.until(
-                EC.presence_of_element_located((By.ID, 'passport-main-qrcode-img'))
-            )
-            
-            # 获取二维码图片的src属性并处理
-            qr_code_url = qr_img.get_attribute('src')
-            if qr_code_url.startswith('//'):
-                qr_code_url = 'https:' + qr_code_url
-            
-            # 存储会话信息
-            client_sessions[client_id] = {
-                'driver': driver,
-                'last_activity': datetime.now()
-            }
-            
-            return jsonify({
-                'status': 'success',
-                'qr_code_url': qr_code_url
-            })
-            
-        except Exception as e:
-            driver.quit()
-            raise e
-            
-    except Exception as e:
-        return jsonify({
-            'status': 'error',
-            'message': str(e)
-        }), 500
+        # 访问京东登录页面
+        driver.get('https://passport.jd.com/new/login.aspx')
+    
+        # 等待二维码图片加载
+        wait = WebDriverWait(driver, 10)
+        qr_img = wait.until(
+            EC.presence_of_element_located((By.ID, 'passport-main-qrcode-img'))
+        )
+        
+        # 获取二维码元素的位置和大小
+        location = qr_img.location
+        # size = qr_img.size
+        size = {
+            'width': 240,
+            'height': 240
+        }
 
-@jd_bp.route('/check_login', methods=['POST', 'OPTIONS'])
-def check_login():
-    """检查京东登录状态"""
-    if request.method == 'OPTIONS':
-        response = make_response()
-        response.headers.add('Access-Control-Allow-Origin', 'http://localhost:8080')
-        response.headers.add('Access-Control-Allow-Headers', 'Content-Type,X-Client-ID')
-        response.headers.add('Access-Control-Allow-Methods', 'POST,OPTIONS')
-        response.headers.add('Access-Control-Allow-Credentials', 'true')
-        return response
+        offset_x = 280  # 向右偏移20像素
+        offset_y = 100  # 向下偏移20像素
 
-    try:
-        data = request.get_json()
-        client_id = data.get('client_id')
+        # 截取二维码图片
+        png = driver.get_screenshot_as_png()
+        im = Image.open(BytesIO(png))
         
-        if not client_id or client_id not in client_sessions:
-            return jsonify({
-                'status': 'error',
-                'message': '无效的会话'
-            }), 401
+        # 因为是无头模式，不需要考虑DPI缩放
+        left = location['x'] + offset_x
+        top = location['y'] + offset_y
+        right = location['x'] + size['width'] + offset_x
+        bottom = location['y'] + size['height'] + offset_y
         
-        session = client_sessions[client_id]
-        driver = session['driver']
+        # 裁剪图片
+        im = im.crop((left, top, right, bottom))
         
-        try:
-            # 检查是否已登录（通过检查URL是否已重定向）
-            current_url = driver.current_url
-            if 'passport.jd.com/new/login.aspx' not in current_url:
-                # 获取cookies
-                cookies = driver.get_cookies()
-                client_sessions[client_id]['cookies'] = cookies
-                
-                # 更新会话活动时间
-                update_session_activity(client_id)
-                
-                return jsonify({
-                    'status': 'success',
-                    'logged_in': True
-                })
-            
-            # 更新会话活动时间
-            update_session_activity(client_id)
-            
-            return jsonify({
-                'status': 'success',
-                'logged_in': False
-            })
-            
-        except Exception as e:
-            return jsonify({
-                'status': 'error',
-                'message': str(e)
-            }), 500
-            
-    except Exception as e:
-        return jsonify({
-            'status': 'error',
-            'message': str(e)
-        }), 500
-
-@jd_bp.route('/SetAccount', methods=['POST', 'OPTIONS'])
-def SetAccount():
-    """设置用户账号，转移session到新的client_id"""
-    if request.method == 'OPTIONS':
-        response = make_response()
-        response.headers.add('Access-Control-Allow-Origin', 'http://localhost:8080')
-        response.headers.add('Access-Control-Allow-Headers', 'Content-Type,X-Client-ID')
-        response.headers.add('Access-Control-Allow-Methods', 'POST,OPTIONS')
-        response.headers.add('Access-Control-Allow-Credentials', 'true')
-        return response
-        
-    try:
-        data = request.get_json()
-        message = data.get('message')
-        session_id = data.get('session_id')
-        
-        if not session_id or session_id not in client_sessions:
-            return jsonify({
-                'status': 'error',
-                'message': '无效的会话ID'
-            }), 400
-            
-        # 创建新的客户端ID
-        client_id = str(uuid.uuid4())
-        
-        # 获取当前session的driver
-        driver = client_sessions[session_id]['driver']
-        
-        # 获取所有cookies
-        cookies = driver.get_cookies()
-        
-        # 将cookies和其他信息转移到新的client_sessions中
-        client_sessions[client_id] = {
-            'cookies': cookies,
+        # 将图片转换为base64
+        buffered = BytesIO()
+        im.save(buffered, format="PNG")
+        qr_code_base64 = base64.b64encode(buffered.getvalue()).decode()
+        qr_code_url = f"data:image/png;base64,{qr_code_base64}"
+    
+        # 存储会话信息
+        session_id = str(uuid.uuid4())
+        client_sessions[session_id] = {
+            'driver': driver,
             'last_activity': datetime.now()
         }
+    
+        return {
+            'session_id': session_id,
+            'qr_code_url': qr_code_url
+        }
         
-        # 关闭并清理旧的session的driver
-        try:
+    except Exception as e:
+        if 'driver' in locals():
             driver.quit()
-        except:
-            pass
-        del client_sessions[session_id]
+        print(f"获取二维码时出错: {str(e)}")
+        raise e
+
+def check_login_status(session_id):
+    """检查会话状态"""
+    if session_id not in client_sessions:
+        return {
+            'status': 'error',
+            'message': '会话不存在'
+        }
+    
+    try:
+        # 获取当前session的driver
+        driver = client_sessions[session_id]['driver']
+    
+        # 检查是否已登录（通过检查URL是否已重定向）
+        current_url = driver.current_url
+        if 'passport.jd.com/new/login.aspx' not in current_url:
+            # 获取cookies
+            cookies = driver.get_cookies()
+            client_sessions[session_id]['cookies'] = cookies
+            
+            # 更新会话活动时间
+            update_session_activity(session_id)
+
+            # 关闭Chrome驱动
+            driver.quit()
+            del client_sessions[session_id]['driver']
         
-        return jsonify({
+            return {
+                'status': 'success',
+                'message': '登录成功'
+            }
+
+        return {
+            'status': 'waiting',
+            'message': '等待扫码'
+        }
+        
+    except Exception as e:
+        if 'driver' in locals():
+            try:
+                driver.quit()
+            except:
+                pass
+        if session_id in client_sessions and 'driver' in client_sessions[session_id]:
+            del client_sessions[session_id]['driver']
+        print(f"检查登录状态时出错: {str(e)}")
+        raise e
+
+# 创建一个client_id，转移cookies，更新会话活动时间
+def set_account(session_id):
+
+    client_id = str(uuid.uuid4())
+    # 将session中的cookies转移到新的client_sessions中
+    if 'cookies' in client_sessions[session_id]:
+        client_sessions[client_id] = {
+            'cookies': client_sessions[session_id]['cookies'],
+        }
+        del client_sessions[session_id]
+    
+        # 更新会话活动时间
+        update_session_activity(client_id)
+        
+        return {
             'status': 'success',
             'message': '登录成功',
             'client_id': client_id
+        }
+    
+    else:
+        raise Exception("未找到cookies")
+
+@jd_bp.route('/get_qr_code', methods=['GET'])
+def get_qr_code_route():
+    try:
+        result = get_qr_code()
+        return jsonify({
+            'status': 'success',
+            'data': result
         })
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@jd_bp.route('/check_login', methods=['POST'])
+def check_login_route():
+    try:
+        data = request.get_json()
+        session_id = data.get('session_id')
+        if not session_id:
+            return jsonify({
+                'status': 'error',
+                'message': '缺少session_id'
+            }), 400
             
+        result = check_login_status(session_id)
+        return jsonify(result)
+        
     except Exception as e:
         print(f"错误: {str(e)}")
         return jsonify({
             'status': 'error',
             'message': str(e)
+        }), 500
+
+@jd_bp.route('/SetAccount', methods=['POST'])
+def set_account_route():
+    try:
+        data = request.get_json()
+        session_id = data.get('session_id')
+        
+        if not session_id or session_id not in client_sessions:
+            return jsonify({
+                'status': 'error',
+                'message': '缺少session_id'
+            }), 400
+            
+        # 此处我们要根据会话创建一个client_id，转移cookies，更新会话活动时间
+        result = set_account(session_id)
+        return jsonify(result)
+        
+    except Exception as e:
+        print(f"错误: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@jd_bp.route('/search', methods=['POST'])
+def search_route():
+    try:
+
+        clean_expired_sessions()
+
+        data = request.get_json()
+        keyword = data.get('keyword')
+        page = data.get('page', 1)
+        client_id = request.headers.get('X-Client-ID')
+        
+        if not client_id or client_id not in client_sessions:
+            return jsonify({
+                'status': 'error',
+                'code' : 'LOGIN_REQUIRED',
+                'message': '缺少client_id'
+            }), 401
+        
+        if 'cookies' not in client_sessions[client_id]:
+            return jsonify({
+                'status': 'error',
+                'code' : 'LOGIN_REQUIRED',
+                'message': '缺少cookies'
+            }), 401
+
+        update_session_activity(client_id)
+            
+        result = search(client_id, page, keyword)
+        return jsonify(result)
+        
+    except Exception as e:
+        print(f"错误: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)    
         }), 500
