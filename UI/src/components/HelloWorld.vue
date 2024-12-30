@@ -171,11 +171,22 @@ export default {
   },
   methods: {
     switchPlatform (platform) {
+      // 如果当前有搜索操作正在进行，先将其标记为完成
+      this.loading = false
+      this.jdLoading = false
+      // 清除搜索结果和错误信息
+      if (platform === 'taobao') {
+        this.clearResults()
+        this.jdSearchResults = null
+        this.jdError = null
+      } else {
+        this.clearJdResults()
+        this.searchResults = null
+        this.error = null
+      }
+      // 最后切换平台
       this.currentPlatform = platform
-      this.clearResults()
-      this.clearJdResults()
     },
-    // 淘宝相关方法保持不变...
     async loginTaobao () {
       try {
         const response = await axios.get('http://localhost:5000/api/taobao/get_qr_code')
@@ -185,6 +196,7 @@ export default {
           this.showQrCode = true
           let retryCount = 0
           const maxRetries = 30 // 最多尝试30次，即60秒
+          let accountSet = false // 标记是否已经设置过账号
           // 开始轮询检查登录状态
           this.checkLoginInterval = setInterval(async () => {
             try {
@@ -195,39 +207,46 @@ export default {
                 this.error = '登录超时，请重试'
                 return
               }
-
               const statusResponse = await axios.post('http://localhost:5000/api/taobao/check_login', {
                 session_id: this.sessionId
               })
-              if (statusResponse.data.status === 'success') {
-                // 登录成功，停止轮询
+              if (statusResponse.data.status === 'success' && !accountSet) {
+                // 登录成功且未设置过账号，停止轮询
                 clearInterval(this.checkLoginInterval)
                 this.showQrCode = false
-                // 获取客户端ID
-                const accountResponse = await axios.post('http://localhost:5000/api/taobao/SetAccount', {
-                  message: 'new_session',
-                  session_id: this.sessionId
-                })
-                if (accountResponse.data.status === 'success') {
-                  this.clientId = accountResponse.data.client_id
-                  localStorage.setItem('taobao_client_id', accountResponse.data.client_id)
-                  this.error = null
-                  console.log('登录成功，客户端ID:', this.clientId)
+                // 设置账号（只执行一次）
+                try {
+                  const accountResponse = await axios.post('http://localhost:5000/api/taobao/SetAccount', {
+                    message: 'new_session',
+                    session_id: this.sessionId
+                  })
+                  if (accountResponse.data.status === 'success') {
+                    accountSet = true // 标记已设置账号
+                    this.clientId = accountResponse.data.client_id
+                    localStorage.setItem('taobao_client_id', accountResponse.data.client_id)
+                    this.error = null
+                  }
+                } catch (error) {
+                  console.error('设置淘宝账号失败:', error)
+                  this.error = '设置账号失败，请重试'
                 }
               } else if (statusResponse.data.status === 'error') {
                 clearInterval(this.checkLoginInterval)
                 this.showQrCode = false
                 this.error = statusResponse.data.message
               }
-            } catch (e) {
-              console.error('检查登录状态错误:', e)
+            } catch (error) {
+              console.error('检查淘宝登录状态错误:', error)
+              clearInterval(this.checkLoginInterval)
+              this.showQrCode = false
+              this.error = '登录失败，请重试'
             }
           }, 2000)
         } else {
-          this.error = '获取二维码失败'
+          this.error = response.data.message || '获取二维码失败'
         }
       } catch (error) {
-        console.error('登录错误:', error)
+        console.error('淘宝登录错误:', error)
         this.error = '登录失败，请重试'
       }
     },
@@ -298,6 +317,7 @@ export default {
           this.jdShowQrCode = true
           let retryCount = 0
           const maxRetries = 30 // 最多尝试30次，即60秒
+          let accountSet = false // 标记是否已经设置过账号
           // 开始轮询检查登录状态
           this.jdCheckLoginInterval = setInterval(async () => {
             try {
@@ -311,19 +331,25 @@ export default {
               const statusResponse = await axios.post('http://localhost:5000/api/jd/check_login', {
                 session_id: this.jdSessionId
               })
-              if (statusResponse.data.status === 'success') {
-                // 登录成功，停止轮询
+              if (statusResponse.data.status === 'success' && !accountSet) {
+                // 登录成功且未设置过账号，停止轮询
                 clearInterval(this.jdCheckLoginInterval)
                 this.jdShowQrCode = false
-                // 设置账号
-                const accountResponse = await axios.post('http://localhost:5000/api/jd/SetAccount', {
-                  message: 'new_session',
-                  session_id: this.jdSessionId
-                })
-                if (accountResponse.data.status === 'success') {
-                  this.jdClientId = accountResponse.data.client_id
-                  localStorage.setItem('jd_client_id', accountResponse.data.client_id)
-                  this.jdError = null
+                // 设置账号（只执行一次）
+                try {
+                  const accountResponse = await axios.post('http://localhost:5000/api/jd/SetAccount', {
+                    message: 'new_session',
+                    session_id: this.jdSessionId
+                  })
+                  if (accountResponse.data.status === 'success') {
+                    accountSet = true // 标记已设置账号
+                    this.jdClientId = accountResponse.data.client_id
+                    localStorage.setItem('jd_client_id', accountResponse.data.client_id)
+                    this.jdError = null
+                  }
+                } catch (error) {
+                  console.error('设置京东账号失败:', error)
+                  this.jdError = '设置账号失败，请重试'
                 }
               } else if (statusResponse.data.status === 'error') {
                 clearInterval(this.jdCheckLoginInterval)
@@ -337,6 +363,8 @@ export default {
               this.jdError = '登录失败，请重试'
             }
           }, 2000)
+        } else {
+          this.jdError = response.data.message || '获取二维码失败'
         }
       } catch (error) {
         console.error('京东登录错误:', error)
@@ -367,7 +395,7 @@ export default {
           }
         })
         if (response.data && response.data.status === 'success') {
-          this.jdSearchResults = response.data.data
+          this.jdSearchResults = response.data.results
           this.jdError = null
         } else if (response.data) {
           this.jdError = response.data.message || '搜索失败'

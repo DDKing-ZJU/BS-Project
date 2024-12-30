@@ -152,6 +152,10 @@ def get_qr_code():
         raise
 
 def check_login_status(session_id):
+    # 如果已经有cookies，说明已经登录成功
+    if 'cookies' in client_sessions[session_id]:
+        return {'status': 'success', 'message': '登录成功'}
+
     # 处理弹窗
     driver = client_sessions[session_id]['driver']
     current_url = driver.current_url
@@ -283,7 +287,7 @@ def SetAccount():
                 'last_active': time.time()
             }
             # 清理旧的session
-            del client_sessions[session_id]
+            # del client_sessions[session_id]
             
             return jsonify({
                 'status': 'success',
@@ -490,13 +494,13 @@ def search_taobao():
                         location = "位置未知"
                     
                     items.append({
-                        'id': item_id,  # 添加商品ID作为主键
+                        'id': 'tb' + str(item_id),  # 添加商品ID作为主键
                         'title': title,
                         'price': price,
                         'sales': sales,
                         'shop_name': shop_name,
-                        'image_url': img_url,
                         'item_url': link,
+                        'image_url': img_url,
                         'location': location
                     })
                 except Exception as e:

@@ -171,12 +171,53 @@ def check_login_status(session_id):
             'message': '会话不存在'
         }
     
+    # 如果已经获取到cookies，说明已经登录成功
+    if 'cookies' in client_sessions[session_id]:
+        return {
+            'status': 'success',
+            'message': '登录成功'
+        }
+    
     try:
         # 获取当前session的driver
+        if 'driver' not in client_sessions[session_id]:
+            return {
+                'status': 'error',
+                'message': '登录会话已失效'
+            }
+            
         driver = client_sessions[session_id]['driver']
+        
+        # 检查driver是否还在运行
+        try:
+            # 尝试执行一个简单的命令来检查driver是否还活着
+            driver.current_window_handle
+        except Exception as e:
+            print(f"Driver已关闭或无效: {str(e)}")
+            if session_id in client_sessions:
+                if 'driver' in client_sessions[session_id]:
+                    del client_sessions[session_id]['driver']
+            return {
+                'status': 'error',
+                'message': '登录会话已失效'
+            }
     
-        # 检查是否已登录（通过检查URL是否已重定向）
-        current_url = driver.current_url
+        # 添加重试机制获取URL
+        max_retries = 3
+        retry_count = 0
+        current_url = None
+        
+        while retry_count < max_retries:
+            try:
+                current_url = driver.current_url
+                break
+            except Exception as url_error:
+                retry_count += 1
+                if retry_count == max_retries:
+                    raise url_error
+                print(f"获取URL失败，正在重试 ({retry_count}/{max_retries})")
+                time.sleep(2)  # 等待2秒后重试
+        
         if 'passport.jd.com/new/login.aspx' not in current_url:
             # 获取cookies
             cookies = driver.get_cookies()
@@ -186,8 +227,12 @@ def check_login_status(session_id):
             update_session_activity(session_id)
 
             # 关闭Chrome驱动
-            driver.quit()
-            del client_sessions[session_id]['driver']
+            try:
+                driver.quit()
+            except:
+                pass
+            if 'driver' in client_sessions[session_id]:
+                del client_sessions[session_id]['driver']
         
             return {
                 'status': 'success',
@@ -208,7 +253,10 @@ def check_login_status(session_id):
         if session_id in client_sessions and 'driver' in client_sessions[session_id]:
             del client_sessions[session_id]['driver']
         print(f"检查登录状态时出错: {str(e)}")
-        raise e
+        return {
+            'status': 'error',
+            'message': '检查登录状态时出错'
+        }
 
 # 创建一个client_id，转移cookies，更新会话活动时间
 def set_account(session_id):
@@ -219,7 +267,7 @@ def set_account(session_id):
         client_sessions[client_id] = {
             'cookies': client_sessions[session_id]['cookies'],
         }
-        del client_sessions[session_id]
+        # del client_sessions[session_id]
     
         # 更新会话活动时间
         update_session_activity(client_id)
@@ -232,6 +280,134 @@ def set_account(session_id):
     
     else:
         raise Exception("未找到cookies")
+
+def search(client_id, page, keyword):
+    try:
+        # 获取cookies
+        cookies = client_sessions[client_id]['cookies']
+        
+        # 计算实际的京东页码
+        # 京东的页码逻辑：
+        # page = 1,2 显示第1页
+        # page = 3,4 显示第2页
+        # 所以实际页码 = (page + 1) // 2
+        jd_page = (page * 2) - 1
+        
+        # 创建新的Chrome驱动
+        driver = create_chrome_driver(headless=False)
+        
+        try:
+            # 设置cookies
+            driver.get("https://www.jd.com")  # 先访问京东主页，然后设置cookies
+            for cookie in cookies:
+                driver.add_cookie(cookie)
+            
+            # 构建搜索URL
+            search_url = f"https://search.jd.com/Search?keyword={keyword}&page={jd_page}"
+            driver.get(search_url)
+            
+            # 等待搜索结果加载
+            wait = WebDriverWait(driver, 10)
+
+            # 在这里添加一个向下缓慢滚动加载的逻辑
+            # 缓慢滚动页面以加载图片
+            last_height = driver.execute_script("return document.body.scrollHeight")
+            current_position = 0
+            step = 300  # 每次滚动300像素
+            
+            while True:
+                # 分段滚动
+                current_position += step
+                driver.execute_script(f"window.scrollTo(0, {current_position});")
+                time.sleep(0.3)  # 每次滚动后等待1秒
+                
+                # 检查是否到达底部
+                if current_position >= last_height:
+                    # 计算新的页面高度
+                    new_height = driver.execute_script("return document.body.scrollHeight")
+                    if new_height == last_height:
+                        break
+                    last_height = new_height
+                    # 如果页面变长了，继续滚动
+            
+            # 回到顶部，同样缓慢滚动
+            while current_position > 0:
+                current_position -= step
+                if current_position < 0:
+                    current_position = 0
+                driver.execute_script(f"window.scrollTo(0, {current_position});")
+                time.sleep(0.1)
+            
+            goods_list = wait.until(EC.presence_of_element_located((By.CLASS_NAME, 'gl-warp')))
+            
+            # 获取搜索结果
+            items = goods_list.find_elements(By.CLASS_NAME, 'gl-item')
+            results = []
+            
+            for item in items:
+                try:
+                    # 获取商品信息
+                    sku = item.get_attribute('data-sku')  # 获取商品ID
+                    price_element = item.find_element(By.CSS_SELECTOR, '.p-price strong i')
+                    title_element = item.find_element(By.CSS_SELECTOR, '.p-name em')
+                    shop_element = item.find_element(By.CSS_SELECTOR, '.p-shop')
+                    link_element = item.find_element(By.CSS_SELECTOR, '.p-img a')
+                    img_element = item.find_element(By.CSS_SELECTOR, '.p-img img')
+                    
+                    # 处理图片URL，避免双重https://
+                    img_url = img_element.get_attribute('src') or img_element.get_attribute('data-lazy-img')
+                    print(img_url)
+                    if img_url.startswith('//'):
+                        img_url = 'https:' + img_url
+                    elif not img_url.startswith('http'):
+                        img_url = 'https://' + img_url
+                    
+                    # 获取商品评价数（销量）
+                    try:
+                        commit_element = item.find_element(By.CSS_SELECTOR, '.p-commit strong a')
+                        # DEBUG
+                        print(commit_element.text)
+                        # 直接获取评价数文本并处理
+                        sales = commit_element.text.split('条评价')[0].strip()
+                    except:
+                        sales = "0"
+                    
+                    # 获取商品产地
+                    try:
+                        stock_element = item.find_element(By.CSS_SELECTOR, '.p-stock')
+                        location = stock_element.get_attribute('data-province')
+                    except:
+                        location = "未知"
+                    
+                    # 构建结果
+                    result = {
+                        'id': 'jd' + str(sku),
+                        'title': title_element.text,
+                        'price': price_element.text,
+                        'sales': sales,
+                        'shop_name': shop_element.text,
+                        'item_url': 'https:' + link_element.get_attribute('href') if not link_element.get_attribute('href').startswith('http') else link_element.get_attribute('href'),
+                        'image_url': img_url,
+                        'location': location
+                    }
+                    results.append(result)
+                except Exception as e:
+                    print(f"处理商品时出错: {str(e)}")
+                    continue
+            
+            return {
+                'status': 'success',
+                'results': results,
+                'page': page,
+                'jd_page': jd_page
+            }
+            
+        finally:
+            driver.quit()
+        
+    except Exception as e:
+        print(f"搜索时出错: {str(e)}")
+        raise e
 
 @jd_bp.route('/get_qr_code', methods=['GET'])
 def get_qr_code_route():
