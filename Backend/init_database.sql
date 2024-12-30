@@ -79,10 +79,7 @@ CREATE TABLE IF NOT EXISTS users (
 -- 创建平台表
 CREATE TABLE IF NOT EXISTS platforms (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    name VARCHAR(50) NOT NULL UNIQUE,
-    description TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_name (name)
+    name VARCHAR(50) NOT NULL UNIQUE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 创建商品基本信息表
@@ -90,42 +87,30 @@ CREATE TABLE IF NOT EXISTS products (
     id INT AUTO_INCREMENT PRIMARY KEY,
     platform_id INT NOT NULL,
     item_id VARCHAR(100) NOT NULL,
-    title VARCHAR(255) NOT NULL,
-    description TEXT,
+    title VARCHAR(500) NOT NULL,
+    price DECIMAL(10, 2) NOT NULL,
+    sales_count VARCHAR(50),
+    shop_name VARCHAR(200),
+    item_url TEXT NOT NULL,
     image_url TEXT,
-    item_url TEXT,
-    brand VARCHAR(100),
-    category VARCHAR(100),
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    FOREIGN KEY (platform_id) REFERENCES platforms(id) ON DELETE CASCADE,
-    UNIQUE KEY unique_platform_item (platform_id, item_id),
-    INDEX idx_item_id (item_id),
-    INDEX idx_title (title),
-    INDEX idx_brand (brand),
-    INDEX idx_category (category)
+    location VARCHAR(100),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (platform_id) REFERENCES platforms(id),
+    UNIQUE KEY platform_item (platform_id, item_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 创建商品价格历史表
 CREATE TABLE IF NOT EXISTS price_history (
     id INT AUTO_INCREMENT PRIMARY KEY,
     product_id INT NOT NULL,
-    price DECIMAL(10,2) NOT NULL,
-    original_price DECIMAL(10,2),
-    discount_info VARCHAR(255),
-    sales_count INT,
-    recorded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
-    INDEX idx_product_id (product_id),
-    INDEX idx_recorded_at (recorded_at)
+    price DECIMAL(10, 2) NOT NULL,
+    recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (product_id) REFERENCES products(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 插入基础平台数据
-INSERT INTO platforms (name, description) 
-VALUES ('taobao', '淘宝平台');
-
-INSERT INTO platforms (name, description) 
-VALUES ('jd', '京东平台');
+INSERT IGNORE INTO platforms (name) VALUES ('taobao'), ('jd');
 
 -- 添加一些测试数据（可选，建议在开发环境使用）
 -- INSERT INTO users (username, email, password) VALUES 

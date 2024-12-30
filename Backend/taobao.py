@@ -21,6 +21,7 @@ from selenium.common.exceptions import TimeoutException
 import base64
 from PIL import Image
 import io
+from database import SessionLocal, save_product
 
 taobao_bp = Blueprint('taobao', __name__)
 
@@ -503,16 +504,34 @@ def search_taobao():
                         'image_url': img_url,
                         'location': location
                     })
+
+                    # 添加到数据库
+                    try:   
+                        db = SessionLocal()
+        
+                        save_product(db, 'taobao', {
+                            'item_id': item_id,
+                            'title': title,
+                            'price': price,
+                            'sales': sales,
+                            'shop_name': shop_name,
+                            'item_url': link,
+                            'image_url': img_url,
+                            'location': location
+                        })
+                    except Exception as e:
+                        print(f"保存商品错误: {str(e)}")
+
                 except Exception as e:
                     print(f"解析商品卡片错误: {str(e)}")
                     continue
-            
+
             driver.quit()
             return jsonify({
                 'status': 'success',
                 'data': items
             })
-            
+
         except Exception as e:
             if driver:
                 driver.quit()

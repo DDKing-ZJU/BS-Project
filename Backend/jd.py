@@ -17,6 +17,7 @@ from datetime import datetime, timedelta
 import uuid
 from PIL import Image
 from io import BytesIO
+from database import SessionLocal, save_product
 
 # 创建蓝图
 jd_bp = Blueprint('jd', __name__)
@@ -470,7 +471,6 @@ def set_account_route():
 @jd_bp.route('/search', methods=['POST'])
 def search_route():
     try:
-
         clean_expired_sessions()
 
         data = request.get_json()
@@ -484,22 +484,52 @@ def search_route():
                 'code' : 'LOGIN_REQUIRED',
                 'message': '缺少client_id'
             }), 401
-        
+            
         if 'cookies' not in client_sessions[client_id]:
             return jsonify({
                 'status': 'error',
-                'code' : 'LOGIN_REQUIRED',
-                'message': '缺少cookies'
+                'code': 'LOGIN_REQUIRED',
+                'message': '请先登录'
             }), 401
 
         update_session_activity(client_id)
+
+        # 创建数据库会话
+        db = SessionLocal()
+
+        try:
+            # 调用搜索函数
+            result = search(client_id, page, keyword)
             
-        result = search(client_id, page, keyword)
-        return jsonify(result)
-        
+            # 保存商品信息到数据库
+            if result.get('status') == 'success' and 'results' in result:
+                for item in result['results']:
+                    try:
+                        item_data = {
+                            'item_id': item['id'],
+                            'title': item['title'],
+                            'price': float(item['price'].replace('¥', '')),
+                            'image_url': item['image_url'],
+                            'item_url': item['item_url'],
+                            'shop_name': item.get('shop_name', ''),
+                            'sales': item.get('sales', 0),
+                            'location': item.get('location', '')
+                        }
+                        save_product(db, 'jd', item_data)
+                    except Exception as e:
+                        print(f"保存商品信息时出错: {str(e)}")
+                        continue
+
+            return jsonify(result)
+
+        except Exception as e:
+            return jsonify({'status': 'error', 'message': str(e)})
+        finally:
+            db.close()
+
     except Exception as e:
         print(f"错误: {str(e)}")
         return jsonify({
             'status': 'error',
-            'message': str(e)    
+            'message': str(e)
         }), 500
