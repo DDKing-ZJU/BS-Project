@@ -13,10 +13,14 @@ def log_request_info():
     print('请求URL:', request.url)
 
 # 配置CORS
-CORS(app, 
-     origins="http://localhost:8080",
-     allow_headers=["Content-Type", "X-Client-ID"],
-     supports_credentials=True)
+CORS(app, resources={
+    r"/*": {
+        "origins": ["http://localhost:8080"],
+        "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Authorization", "x-client-id"],
+        "supports_credentials": True
+    }
+})
 
 # 注册蓝图
 app.register_blueprint(taobao_bp, url_prefix='/api/taobao')

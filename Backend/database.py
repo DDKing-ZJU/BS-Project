@@ -4,8 +4,11 @@ from sqlalchemy.orm import sessionmaker
 from datetime import datetime
 import re
 
+# 在生产环境中应使用环境变量
+engine_path = 'mysql+pymysql://root:123linhaibin@localhost/bs_project?charset=utf8mb4'
+
 # 创建数据库引擎
-engine = create_engine('mysql+pymysql://root:root@localhost/bs_project?charset=utf8mb4')
+engine = create_engine(engine_path)
 SessionLocal = sessionmaker(bind=engine)
 Base = declarative_base()
 

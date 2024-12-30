@@ -127,7 +127,7 @@ export default {
           // 保存token
           localStorage.setItem('auth_token', response.data.token)
           // 跳转到主页
-          this.$router.push('/')
+          this.$router.push({ name: 'MultiSearch' })
         }
       } catch (error) {
         this.loginError = (error.response && error.response.data && error.response.data.detail) || '登录失败，请重试'
@@ -158,7 +158,7 @@ export default {
           // 保存token
           localStorage.setItem('auth_token', response.data.token)
           // 跳转到主页
-          this.$router.push('/')
+          this.$router.push({ name: 'MultiSearch' })
         }
       } catch (error) {
         this.registerError = (error.response && error.response.data && error.response.data.detail) || '注册失败，请重试'

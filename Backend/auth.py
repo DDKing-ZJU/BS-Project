@@ -1,14 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
-from sqlalchemy.exc import IntegrityError
-from datetime import datetime
+from flask import Blueprint, request, jsonify
+from datetime import datetime, timedelta
 import bcrypt
 import jwt
-from typing import Optional
-
 from database import get_db, User, validate_password, validate_email, validate_username
 
-router = APIRouter()
+bp = Blueprint('auth', __name__)
 
 # JWT配置
 SECRET_KEY = "your-secret-key"  # 在生产环境中应该使用环境变量
@@ -31,29 +27,35 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     """验证密码"""
     return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
 
-@router.post("/register")
-async def register(username: str, email: str, password: str, db: Session = Depends(get_db)):
+@bp.route("/register", methods=["POST"])
+def register():
     """用户注册"""
+    data = request.get_json()
+    username = data.get('username')
+    email = data.get('email')
+    password = data.get('password')
+
     # 验证输入
     if not validate_username(username):
-        raise HTTPException(
-            status_code=400,
-            detail="用户名必须至少6位，只能包含字母、数字和下划线"
-        )
+        return jsonify({
+            "status": "error",
+            "detail": "用户名必须至少6位，只能包含字母、数字和下划线"
+        }), 400
     
     if not validate_email(email):
-        raise HTTPException(
-            status_code=400,
-            detail="邮箱格式不正确"
-        )
+        return jsonify({
+            "status": "error",
+            "detail": "邮箱格式不正确"
+        }), 400
     
     if not validate_password(password):
-        raise HTTPException(
-            status_code=400,
-            detail="密码必须至少6位"
-        )
+        return jsonify({
+            "status": "error",
+            "detail": "密码必须至少6位"
+        }), 400
     
     try:
+        db = next(get_db())
         # 创建新用户
         hashed_password = hash_password(password)
         new_user = User(
@@ -68,62 +70,91 @@ async def register(username: str, email: str, password: str, db: Session = Depen
         # 创建JWT令牌
         token = create_jwt_token(new_user.id)
         
-        return {
+        return jsonify({
             "status": "success",
             "message": "注册成功",
             "token": token
-        }
-    except IntegrityError:
+        })
+    except Exception as e:
         db.rollback()
-        raise HTTPException(
-            status_code=400,
-            detail="用户名或邮箱已存在"
-        )
+        return jsonify({
+            "status": "error",
+            "detail": "用户名或邮箱已存在"
+        }), 400
 
-@router.post("/login")
-async def login(username: str, password: str, db: Session = Depends(get_db)):
+@bp.route("/login", methods=["POST"])
+def login():
     """用户登录"""
-    # 查找用户
-    user = db.query(User).filter(User.username == username).first()
-    if not user or not verify_password(password, user.password):
-        raise HTTPException(
-            status_code=401,
-            detail="用户名或密码错误"
-        )
-    
-    # 更新最后登录时间
-    user.last_login = datetime.utcnow()
-    db.commit()
-    
-    # 创建JWT令牌
-    token = create_jwt_token(user.id)
-    
-    return {
-        "status": "success",
-        "message": "登录成功",
-        "token": token
-    }
+    data = request.get_json()
+    username = data.get('username')
+    password = data.get('password')
 
-@router.get("/verify")
-async def verify_token(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
-    """验证令牌"""
     try:
+        db = next(get_db())
+        # 查找用户
+        user = db.query(User).filter(User.username == username).first()
+        if not user or not verify_password(password, user.password):
+            return jsonify({
+                "status": "error",
+                "detail": "用户名或密码错误"
+            }), 401
+        
+        # 更新最后登录时间
+        user.last_login = datetime.utcnow()
+        db.commit()
+        
+        # 创建JWT令牌
+        token = create_jwt_token(user.id)
+        
+        return jsonify({
+            "status": "success",
+            "message": "登录成功",
+            "token": token
+        })
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "detail": "登录失败，请重试"
+        }), 500
+
+@bp.route("/verify", methods=["GET"])
+def verify_token():
+    """验证令牌"""
+    auth_header = request.headers.get('Authorization')
+    if not auth_header:
+        return jsonify({
+            "status": "error",
+            "detail": "未提供令牌"
+        }), 401
+    
+    try:
+        # 从 Bearer token 中提取令牌
+        token = auth_header.split(" ")[1]
+        # 验证令牌
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         user_id = payload.get("user_id")
+        
+        db = next(get_db())
         user = db.query(User).filter(User.id == user_id).first()
+        
         if not user:
-            raise HTTPException(
-                status_code=401,
-                detail="无效的认证凭据"
-            )
-        return {"status": "success", "user": user.username}
+            return jsonify({
+                "status": "error",
+                "detail": "用户不存在"
+            }), 401
+            
+        return jsonify({
+            "status": "success",
+            "user": user.username
+        })
+        
     except jwt.ExpiredSignatureError:
-        raise HTTPException(
-            status_code=401,
-            detail="认证凭据已过期"
-        )
-    except jwt.JWTError:
-        raise HTTPException(
-            status_code=401,
-            detail="无效的认证凭据"
-        )
+        return jsonify({
+            "status": "error",
+            "detail": "令牌已过期"
+        }), 401
+    except jwt.InvalidTokenError:
+        return jsonify({
+            "status": "error",
+            "detail": "无效的令牌"
+        }), 401

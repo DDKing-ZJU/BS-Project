@@ -53,14 +53,11 @@ router.beforeEach((to, from, next) => {
     } else {
       next()
     }
+  } else if (to.name === 'Auth' && token) {
+    // 已登录用户访问登录页，重定向到首页
+    next({ name: 'MultiSearch' })
   } else {
-    // 不需要认证的路由
-    if (token && to.name === 'Auth') {
-      // 已登录用户访问登录页，重定向到首页
-      next({ name: 'MultiSearch' })
-    } else {
-      next()
-    }
+    next()
   }
 })
 
