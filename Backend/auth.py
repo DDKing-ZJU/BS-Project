@@ -2,13 +2,18 @@ from flask import Blueprint, request, jsonify
 from datetime import datetime, timedelta
 import bcrypt
 import jwt
+import os
+from dotenv import load_dotenv
 from database import get_db, User, validate_password, validate_email, validate_username
+
+# 加载环境变量
+load_dotenv()
 
 bp = Blueprint('auth', __name__)
 
 # JWT配置
-SECRET_KEY = "your-secret-key"  # 在生产环境中应该使用环境变量
-ALGORITHM = "HS256"
+SECRET_KEY = os.getenv("JWT_SECRET_KEY")
+ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 
 def create_jwt_token(user_id: int) -> str:
     """创建JWT令牌"""
@@ -158,3 +163,21 @@ def verify_token():
             "status": "error",
             "detail": "无效的令牌"
         }), 401
+
+@bp.route("/check_username/<username>", methods=["GET"])
+def check_username(username):
+    """检查用户名是否已存在"""
+    db = next(get_db())
+    user = db.query(User).filter(User.username == username).first()
+    return jsonify({
+        "exists": user is not None
+    })
+
+@bp.route("/check_email/<email>", methods=["GET"])
+def check_email(email):
+    """检查邮箱是否已存在"""
+    db = next(get_db())
+    user = db.query(User).filter(User.email == email).first()
+    return jsonify({
+        "exists": user is not None
+    })

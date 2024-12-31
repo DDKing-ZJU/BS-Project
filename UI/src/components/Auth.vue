@@ -37,7 +37,11 @@
           >
         </div>
         <div v-if="loginError" class="error-message">{{ loginError }}</div>
-        <button type="submit" :disabled="loading">
+        <button
+          type="submit"
+          :disabled="loading"
+          :class="{ 'button-active': loginForm.username && loginForm.password && !loading }"
+        >
           {{ loading ? '登录中...' : '登录' }}
         </button>
       </form>
@@ -51,7 +55,9 @@
             v-model="registerForm.username"
             required
             placeholder="至少6位，只能包含字母、数字和下划线"
+            @input="checkUsername"
           >
+          <span v-if="usernameError" class="field-error">{{ usernameError }}</span>
         </div>
         <div class="form-group">
           <label>邮箱</label>
@@ -60,7 +66,9 @@
             v-model="registerForm.email"
             required
             placeholder="请输入有效的邮箱地址"
+            @input="checkEmail"
           >
+          <span v-if="emailError" class="field-error">{{ emailError }}</span>
         </div>
         <div class="form-group">
           <label>密码</label>
@@ -79,9 +87,14 @@
             required
             placeholder="请再次输入密码"
           >
+          <span v-if="passwordError" class="field-error">{{ passwordError }}</span>
         </div>
         <div v-if="registerError" class="error-message">{{ registerError }}</div>
-        <button type="submit" :disabled="loading">
+        <button
+          type="submit"
+          :disabled="loading || !isRegisterFormValid"
+          :class="{ 'button-active': isRegisterFormValid && !loading }"
+        >
           {{ loading ? '注册中...' : '注册' }}
         </button>
       </form>
@@ -91,6 +104,7 @@
 
 <script>
 import axios from 'axios'
+import { debounce } from 'lodash'
 
 export default {
   name: 'Auth',
@@ -109,10 +123,100 @@ export default {
         confirmPassword: ''
       },
       loginError: '',
-      registerError: ''
+      registerError: '',
+      usernameError: '',
+      emailError: '',
+      passwordError: ''
+    }
+  },
+  computed: {
+    isRegisterFormValid () {
+      return this.registerForm.username &&
+             this.registerForm.email &&
+             this.registerForm.password &&
+             this.registerForm.confirmPassword &&
+             !this.usernameError &&
+             !this.emailError &&
+             !this.passwordError
+    }
+  },
+  watch: {
+    'registerForm.confirmPassword': {
+      handler (newVal) {
+        if (!newVal || !this.registerForm.password) {
+          this.passwordError = ''
+        } else if (newVal !== this.registerForm.password) {
+          this.passwordError = '两次输入的密码不一致'
+        } else {
+          this.passwordError = ''
+        }
+      },
+      immediate: true
+    },
+    'registerForm.password': {
+      handler (newVal) {
+        if (!newVal || !this.registerForm.confirmPassword) {
+          this.passwordError = ''
+        } else if (newVal !== this.registerForm.confirmPassword) {
+          this.passwordError = '两次输入的密码不一致'
+        } else {
+          this.passwordError = ''
+        }
+      },
+      immediate: true
     }
   },
   methods: {
+    // 使用 debounce 防止频繁请求
+    checkUsername: debounce(async function () {
+      if (!this.registerForm.username) {
+        this.usernameError = ''
+        return
+      }
+
+      // 检查用户名格式
+      if (!/^[a-zA-Z0-9_]{6,}$/.test(this.registerForm.username)) {
+        this.usernameError = '用户名必须至少6位，只能包含字母、数字和下划线'
+        return
+      }
+
+      try {
+        const response = await axios.get(`http://localhost:5000/api/auth/check_username/${this.registerForm.username}`)
+        if (response.data.exists) {
+          this.usernameError = '该用户名已被使用'
+        } else {
+          this.usernameError = ''
+        }
+      } catch (error) {
+        console.error('检查用户名失败:', error)
+      }
+    }, 500),
+
+    // 使用 debounce 防止频繁请求
+    checkEmail: debounce(async function () {
+      if (!this.registerForm.email) {
+        this.emailError = ''
+        return
+      }
+
+      // 检查邮箱格式
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(this.registerForm.email)) {
+        this.emailError = '请输入有效的邮箱地址'
+        return
+      }
+
+      try {
+        const response = await axios.get(`http://localhost:5000/api/auth/check_email/${this.registerForm.email}`)
+        if (response.data.exists) {
+          this.emailError = '该邮箱已被使用'
+        } else {
+          this.emailError = ''
+        }
+      } catch (error) {
+        console.error('检查邮箱失败:', error)
+      }
+    }, 500),
+
     async handleLogin () {
       this.loading = true
       this.loginError = ''
@@ -137,15 +241,13 @@ export default {
     },
 
     async handleRegister () {
-      this.loading = true
-      this.registerError = ''
-
-      // 验证密码确认
-      if (this.registerForm.password !== this.registerForm.confirmPassword) {
-        this.registerError = '两次输入的密码不一致'
-        this.loading = false
+      // 如果有错误，不允许提交
+      if (this.usernameError || this.emailError || this.passwordError) {
         return
       }
+
+      this.loading = true
+      this.registerError = ''
 
       try {
         const response = await axios.post('http://localhost:5000/api/auth/register', {
@@ -161,7 +263,11 @@ export default {
           this.$router.push({ name: 'MultiSearch' })
         }
       } catch (error) {
-        this.registerError = (error.response && error.response.data && error.response.data.detail) || '注册失败，请重试'
+        if (error.response && error.response.data && error.response.data.detail) {
+          this.registerError = error.response.data.detail
+        } else {
+          this.registerError = '注册失败，请重试'
+        }
       } finally {
         this.loading = false
       }
@@ -242,26 +348,37 @@ export default {
 .error-message {
   color: #ff4d4f;
   font-size: 14px;
-  margin-top: -5px;
+  margin-top: 5px;
+}
+
+.field-error {
+  color: #ff4d4f;
+  font-size: 12px;
+  margin-top: 2px;
 }
 
 button[type="submit"] {
   padding: 10px;
-  background-color: #1890ff;
+  background: #d9d9d9;
   color: white;
   border: none;
   border-radius: 4px;
   cursor: pointer;
   font-size: 16px;
-  transition: background-color 0.3s;
+  transition: background 0.3s;
 }
 
-button[type="submit"]:hover {
-  background-color: #40a9ff;
+button[type="submit"].button-active {
+  background: #1890ff;
+  cursor: pointer;
+}
+
+button[type="submit"].button-active:hover {
+  background: #40a9ff;
 }
 
 button[type="submit"]:disabled {
-  background-color: #d9d9d9;
+  background: #d9d9d9;
   cursor: not-allowed;
 }
 </style>

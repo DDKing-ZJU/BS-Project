@@ -1,199 +1,237 @@
 <template>
-  <div class="app-container">
+  <div class="multi-search-container">
     <!-- 顶栏 -->
-    <header class="header">
-      <h1>多平台比价搜索</h1>
-      <div class="user-info">
-        <span v-if="username" class="logged-in-status">
-          <span class="status-text">已登录</span>
-          <span class="username">{{ username }}</span>
-        </span>
-        <button v-if="username" @click="handleLogout" class="logout-btn">退出登录</button>
+    <div class="top-bar">
+      <div class="left-buttons">
+        <button
+          class="nav-button"
+          @click="$router.push('/tracking')"
+        >
+          我的收藏
+        </button>
       </div>
-    </header>
+      <div class="right-buttons">
+        <button
+          v-if="!isLoggedIn"
+          class="nav-button"
+          @click="$router.push('/auth')"
+        >
+          登录/注册
+        </button>
+        <button
+          v-else
+          class="nav-button"
+          @click="handleLogout"
+        >
+          退出登录
+        </button>
+      </div>
+    </div>
 
-    <!-- 主要内容区域 -->
     <div class="main-content">
-      <div class="multi-search">
-        <div class="platform-selection">
-          <h2>选择搜索平台</h2>
-          <div class="platform-controls">
-            <div class="platform-item">
-              <label>
-                <input type="checkbox" v-model="platforms.taobao" @change="checkLoginStatus('taobao')">
-                淘宝
-              </label>
+      <!-- 侧边栏 -->
+      <div :class="['sidebar', { 'collapsed': sidebarCollapsed }]" style="z-index: 1000;">
+        <button class="collapse-btn" @click="toggleSidebar">
+          {{ sidebarCollapsed ? '›' : '‹' }}
+        </button>
+        <div class="sidebar-content" v-show="!sidebarCollapsed">
+          <div class="search-section">
+            <div class="platform-select">
+              <label>选择平台：</label>
+              <select v-model="selectedPlatform">
+                <option value="both">全部</option>
+                <option value="taobao">淘宝</option>
+                <option value="jd">京东</option>
+              </select>
+            </div>
+
+            <div class="search-box">
+              <input
+                type="text"
+                v-model="keyword"
+                @keyup.enter="search"
+                placeholder="输入关键词搜索"
+                :disabled="loading"
+              >
+              <button @click="search" :disabled="loading">
+                {{ loading ? '搜索中...' : '搜索' }}
+              </button>
+            </div>
+          </div>
+
+          <div class="platform-status">
+            <h3>平台状态</h3>
+            
+            <!-- 淘宝状态 -->
+            <div class="platform-item" v-if="selectedPlatform === 'both' || selectedPlatform === 'taobao'">
+              <div class="platform-header">
+                <span class="platform-name">淘宝</span>
+              </div>
+              <div class="login-status">
+                <span :class="{ 'status-dot': true, 'logged-in': taobaoClientId }"></span>
+                {{ taobaoClientId ? '已登录' : '未登录' }}
+              </div>
               <button
-                v-if="platforms.taobao && !taobaoClientId"
+                v-if="!taobaoClientId"
                 @click="loginTaobao"
-                class="login-button"
                 :disabled="taobaoLoading"
+                class="login-button"
               >
                 {{ taobaoLoading ? '登录中...' : '登录淘宝' }}
               </button>
-              <span v-else-if="platforms.taobao && taobaoClientId" class="login-status">已登录</span>
             </div>
-            <div class="platform-item">
-              <label>
-                <input type="checkbox" v-model="platforms.jd" @change="checkLoginStatus('jd')">
-                京东
-              </label>
+
+            <!-- 京东状态 -->
+            <div class="platform-item" v-if="selectedPlatform === 'both' || selectedPlatform === 'jd'">
+              <div class="platform-header">
+                <span class="platform-name">京东</span>
+              </div>
+              <div class="login-status">
+                <span :class="{ 'status-dot': true, 'logged-in': jdClientId }"></span>
+                {{ jdClientId ? '已登录' : '未登录' }}
+              </div>
               <button
-                v-if="platforms.jd && !jdClientId"
+                v-if="!jdClientId"
                 @click="loginJd"
-                class="login-button"
                 :disabled="jdLoading"
+                class="login-button"
               >
                 {{ jdLoading ? '登录中...' : '登录京东' }}
               </button>
-              <span v-else-if="platforms.jd && jdClientId" class="login-status">已登录</span>
-            </div>
-            <div class="platform-item">
-              <label>
-                <input type="checkbox" v-model="showTop20">
-                Top20
-              </label>
             </div>
           </div>
         </div>
-        <div class="search-section">
-          <div class="search-input">
-            <input
-              type="text"
-              v-model="keyword"
-              placeholder="输入搜索关键词"
-              @keyup.enter="search"
-              :disabled="loading"
-            >
-            <button
-              @click="search"
-              :disabled="!canSearch || loading"
-              class="search-button"
-            >
-              {{ loading ? '搜索中...' : '搜索' }}
-            </button>
-          </div>
+      </div>
+
+      <!-- 主要内容区域 -->
+      <div class="content" style="position: relative; z-index: 1;">
+        <div v-if="error" class="error-message">
+          {{ error }}
         </div>
 
         <div v-if="loading" class="loading">
-          正在搜索...
+          <div class="loading-spinner"></div>
+          <p>正在搜索商品...</p>
         </div>
 
-        <div class="search-results">
+        <div v-else-if="!loading && !taobaoResults && !jdResults && !error && !taobaoError && !jdError" class="no-results">
+          <p>暂无搜索结果</p>
+        </div>
 
+        <div v-else class="search-results">
           <!-- Top20搜索结果 -->
-          <div v-if="showTop20 && top20Results" class="platform-results">
+          <div v-if="showTop20 && top20Results" class="platform-section">
             <h3>Top20搜索结果</h3>
             <div class="results-grid">
               <div v-for="(item, index) in top20Results" :key="'top20-' + index" class="result-card">
+                <div class="platform-tag top20">Top20</div>
                 <img :src="item.image" :alt="item.title" class="product-image">
                 <div class="product-info">
                   <h4>{{ item.title }}</h4>
                   <p class="price">¥{{ item.price }}</p>
                   <p class="shop">{{ item.shop }}</p>
-                  <p class="location">{{ item.location }}</p>
-                  <p class="sales">月销 {{ item.sales }}</p>
-                  <a :href="item.url" target="_blank" class="view-btn">查看商品</a>
-                  <span v-if="item.platform === 'taobao'" class="platform-tag taobao">淘宝</span>
-                  <span v-else-if="item.platform === 'jd'" class="platform-tag jd">京东</span>
+                  <div class="actions">
+                    <a :href="item.url" target="_blank" class="view-btn">查看详情</a>
+                    <button @click="showPriceHistory(item, item.platform)" class="history-btn">
+                      历史价格
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 淘宝搜索结果 -->
+          <div v-if="taobaoResults && taobaoResults.length" class="platform-section">
+            <h3>淘宝搜索结果</h3>
+            <div class="results-grid">
+              <div v-for="(item, index) in taobaoResults" :key="'taobao-' + index" class="result-card">
+                <div class="platform-tag taobao">淘宝</div>
+                <img :src="item.image_url" :alt="item.title" class="product-image">
+                <div class="product-info">
+                  <h4>{{ item.title }}</h4>
+                  <p class="price">¥{{ item.price }}</p>
+                  <p class="shop">{{ item.shop_name }}</p>
+                  <div class="actions">
+                    <a :href="item.item_url" target="_blank" class="view-btn">查看详情</a>
+                    <button @click="showPriceHistory(item, 'taobao')" class="history-btn">
+                      历史价格
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 京东搜索结果 -->
+          <div v-if="jdResults && jdResults.length" class="platform-section">
+            <h3>京东搜索结果</h3>
+            <div class="results-grid">
+              <div v-for="(item, index) in jdResults" :key="'jd-' + index" class="result-card">
+                <div class="platform-tag jd">京东</div>
+                <img :src="item.image_url" :alt="item.title" class="product-image">
+                <div class="product-info">
+                  <h4>{{ item.title }}</h4>
+                  <p class="price">¥{{ item.price }}</p>
+                  <p class="shop">{{ item.shop_name }}</p>
+                  <div class="actions">
+                    <a :href="item.item_url" target="_blank" class="view-btn">查看详情</a>
+                    <button @click="showPriceHistory(item, 'jd')" class="history-btn">
+                      历史价格
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
         </div>
+      </div>
+    </div>
 
-        <!-- 淘宝搜索结果 -->
-        <div v-if="platforms.taobao" class="platform-results">
-          <h3>淘宝搜索结果</h3>
-          <div v-if="taobaoError" class="error-message">{{ taobaoError }}</div>
-          <div v-else-if="taobaoResults" class="results-grid">
-            <div v-for="(item, index) in taobaoResults" :key="'taobao-' + index" class="result-card">
-              <div class="platform-tag taobao">淘宝</div>
-              <img :src="item.image_url" :alt="item.title" class="product-image">
-              <div class="product-info">
-                <h4>{{ item.title }}</h4>
-                <div class="price-info">
-                  <span class="price">￥{{ item.price }}</span>
-                  <button @click="showPriceHistory(item, 'taobao')" class="history-btn">查看历史价格</button>
-                </div>
-                <p class="shop">{{ item.shop_name }}</p>
-                <p class="location">{{ item.location }}</p>
-                <p class="sales">月销 {{ item.sales }}</p>
-                <a :href="item.item_url" target="_blank" class="view-btn">查看商品</a>
-              </div>
-            </div>
+    <!-- 淘宝二维码弹窗 -->
+    <transition name="modal">
+      <div v-if="showTaobaoQrCode" class="qr-modal">
+        <div class="qr-content">
+          <div class="modal-header">
+            <h3>淘宝登录</h3>
+            <button class="close-button" @click="closeTaobaoLogin">&times;</button>
           </div>
+          <div class="qr-container">
+            <div v-if="taobaoLoadingQr" class="loading-text">
+              二维码加载中...
+            </div>
+            <img v-else :src="taobaoQrCode" alt="淘宝二维码">
+          </div>
+          <p>请使用淘宝APP扫码登录</p>
         </div>
+      </div>
+    </transition>
 
-        <!-- 京东搜索结果 -->
-        <div v-if="platforms.jd" class="platform-results">
-          <h3>京东搜索结果</h3>
-          <div v-if="jdError" class="error-message">{{ jdError }}</div>
-          <div v-else-if="jdResults" class="results-grid">
-            <div v-for="(item, index) in jdResults" :key="'jd-' + index" class="result-card">
-              <div class="platform-tag jd">京东</div>
-              <img :src="item.image_url" :alt="item.title" class="product-image">
-              <div class="product-info">
-                <h4>{{ item.title }}</h4>
-                <div class="price-info">
-                  <span class="price">￥{{ item.price }}</span>
-                  <button @click="showPriceHistory(item, 'jd')" class="history-btn">查看历史价格</button>
-                </div>
-                <p class="shop">{{ item.shop_name }}</p>
-                <p class="location">{{ item.location }}</p>
-                <p class="sales">月销 {{ item.sales }}</p>
-                <a :href="item.item_url" target="_blank" class="view-btn">查看商品</a>
-              </div>
-            </div>
+    <!-- 京东二维码弹窗 -->
+    <transition name="modal">
+      <div v-if="showJdQrCode" class="qr-modal">
+        <div class="qr-content">
+          <div class="modal-header">
+            <h3>京东登录</h3>
+            <button class="close-button" @click="closeJdLogin">&times;</button>
           </div>
+          <div class="qr-container">
+            <div v-if="jdLoadingQr" class="loading-text">
+              二维码加载中...
+            </div>
+            <img v-else :src="jdQrCode" alt="京东二维码">
+          </div>
+          <p>请使用京东APP扫码登录</p>
         </div>
+      </div>
+    </transition>
 
-        <!-- 淘宝二维码弹窗 -->
-        <transition name="modal">
-          <div v-if="showTaobaoQrCode" class="qr-modal">
-            <div class="qr-content">
-              <div class="modal-header">
-                <h3>淘宝登录</h3>
-                <button class="close-button" @click="closeTaobaoLogin">&times;</button>
-              </div>
-              <div class="qr-container">
-                <div v-if="taobaoLoadingQr" class="loading-text">
-                  二维码加载中...
-                </div>
-                <img v-else :src="taobaoQrCode" alt="淘宝二维码">
-              </div>
-              <p>请使用淘宝APP扫码登录</p>
-            </div>
-          </div>
-        </transition>
-
-        <!-- 京东二维码弹窗 -->
-        <transition name="modal">
-          <div v-if="showJdQrCode" class="qr-modal">
-            <div class="qr-content">
-              <div class="modal-header">
-                <h3>京东登录</h3>
-                <button class="close-button" @click="closeJdLogin">&times;</button>
-              </div>
-              <div class="qr-container">
-                <div v-if="jdLoadingQr" class="loading-text">
-                  二维码加载中...
-                </div>
-                <img v-else :src="jdQrCode" alt="京东二维码">
-              </div>
-              <p>请使用京东APP扫码登录</p>
-            </div>
-          </div>
-        </transition>
-
-        <!-- 历史价格弹窗 -->
-        <div v-if="showPriceModal" class="price-history-modal">
-          <div class="modal-content">
-            <h3>商品历史价格</h3>
-            <div class="price-chart" ref="priceChart"></div>
-            <button @click="closePriceModal" class="close-btn">关闭</button>
-          </div>
-        </div>
+    <!-- 历史价格弹窗 -->
+    <div v-if="showPriceModal" class="price-history-modal">
+      <div class="modal-content">
+        <h3>商品历史价格</h3>
+        <div class="price-chart" ref="priceChart"></div>
+        <button @click="closePriceModal" class="close-btn">关闭</button>
       </div>
     </div>
   </div>
@@ -220,7 +258,10 @@ export default {
       },
       showTop20: false,
       keyword: '',
+      selectedPlatform: 'both', // 添加平台选择
       loading: false,
+      error: null, // 添加错误信息
+      results: [], // 添加搜索结果数组
       taobaoLoading: false,
       jdLoading: false,
       taobaoLoadingQr: true,
@@ -246,12 +287,16 @@ export default {
       top20Results: null,
       showPriceModal: false,
       priceChart: null,
-      currentItemPrice: null
+      currentItemPrice: null,
+      sidebarCollapsed: false // 添加侧边栏折叠状态
     }
   },
   computed: {
     canSearch () {
-      return (this.platforms.taobao || this.platforms.jd) && this.keyword.trim()
+      return this.selectedPlatform && this.keyword.trim()
+    },
+    isLoggedIn () {
+      return !!localStorage.getItem('auth_token')
     }
   },
   methods: {
@@ -260,7 +305,6 @@ export default {
       localStorage.removeItem('auth_token')
       this.$router.push('/auth')
     },
-
     // 获取用户信息
     async fetchUserInfo () {
       try {
@@ -278,7 +322,7 @@ export default {
 
         if (response.data.status === 'success') {
           this.username = response.data.user
-          console.log('User verified:', this.username) // 添加日志
+          console.log('User verified:', this.username)
         } else {
           this.username = ''
           localStorage.removeItem('auth_token')
@@ -316,31 +360,36 @@ export default {
       if (!this.canSearch || this.loading) return
       this.loading = true
 
-      // 重置结果
-      this.top20Results = null
-
-      const searchPromises = []
-
-      if (this.platforms.taobao) {
-        this.taobaoResults = null
-        this.taobaoError = null
-        searchPromises.push(this.searchTaobao())
-      }
-
-      if (this.platforms.jd) {
-        this.jdResults = null
-        this.jdError = null
-        searchPromises.push(this.searchJd())
-      }
-
       try {
-        await Promise.all(searchPromises)
-        // 如果两个平台都选中且搜索成功，则生成Top20结果
-        if (this.showTop20) {
+        // 清空之前的结果
+        this.taobaoResults = null
+        this.jdResults = null
+        this.top20Results = null
+        this.error = null
+        this.taobaoError = null
+        this.jdError = null
+
+        // 创建搜索任务数组
+        const searchTasks = []
+
+        // 根据选择的平台添加搜索任务
+        if (this.selectedPlatform === 'both' || this.selectedPlatform === 'taobao') {
+          searchTasks.push(this.searchTaobao())
+        }
+        if (this.selectedPlatform === 'both' || this.selectedPlatform === 'jd') {
+          searchTasks.push(this.searchJd())
+        }
+
+        // 同时执行所有搜索任务
+        await Promise.all(searchTasks)
+
+        // 如果启用了 Top20，生成 Top20 结果
+        if (this.selectedPlatform === 'both') {
           this.generateTop20Results()
         }
       } catch (error) {
         console.error('搜索出错:', error)
+        this.error = '搜索过程中出现错误，请重试'
       } finally {
         this.loading = false
       }
@@ -491,7 +540,7 @@ export default {
                     this.taobaoError = null
                     this.needTaobaoLogin = false
                   }
-            } catch (error) {
+                } catch (error) {
                   console.error('设置淘宝账号失败:', error)
                   this.taobaoError = '登录失败，请重试'
                 }
@@ -553,18 +602,18 @@ export default {
                     localStorage.setItem('jd_client_id', this.jdClientId)
                     this.needJdLogin = false
                     this.jdError = null
-              }
-            } catch (error) {
+                  }
+                } catch (error) {
                   console.error('设置京东账号失败:', error)
                   this.jdError = '登录失败，请重试'
-            }
-        }
-      } catch (error) {
+                }
+              }
+            } catch (error) {
               console.error('检查京东登录状态失败:', error)
             } finally {
               if (accountSet) {
                 this.jdLoading = false
-      }
+              }
             }
           }, 2000)
         }
@@ -574,8 +623,8 @@ export default {
         this.jdLoading = false
       }
     },
-    
-    closeTaobaoLogin() {
+
+    closeTaobaoLogin () {
       this.showTaobaoQrCode = false
       this.taobaoLoading = false
       this.taobaoQrCode = ''
@@ -584,7 +633,7 @@ export default {
       }
     },
 
-    closeJdLogin() {
+    closeJdLogin () {
       this.showJdQrCode = false
       this.jdLoading = false
       this.jdQrCode = ''
@@ -697,6 +746,9 @@ export default {
         this.priceChart.dispose()
         this.priceChart = null
       }
+    },
+    toggleSidebar () {
+      this.sidebarCollapsed = !this.sidebarCollapsed
     }
   },
   mounted () {
@@ -712,49 +764,271 @@ export default {
 </script>
 
 <style scoped>
-/* 顶部样式 */
-.header {
+.multi-search-container {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background-color: #f5f7fa;
+}
+
+/* 顶栏样式 */
+.top-bar {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 1rem;
-  background-color: #fff;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  padding: 1rem 2rem;
+  background-color: #1890ff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
-.logged-in-status {
-  margin-right: 1rem;
+.nav-button {
+  padding: 0.5rem 1.5rem;
+  border: none;
+  border-radius: 4px;
+  background-color: transparent;
+  color: white;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: background-color 0.3s;
 }
 
-.status-text {
-  color: #42b983;  /* 绿色 */
-  font-weight: bold;
+.nav-button:hover {
+  background-color: rgba(255, 255, 255, 0.2);
 }
 
-.username {
-  margin-left: 0.5rem;
-  font-weight: bold;
+/* 主要内容区域 */
+.main-content {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
 }
 
-/* 商品卡片样式 */
+/* 侧边栏样式 */
+.sidebar {
+  position: fixed;
+  right: 0;
+  top: 60px;
+  width: 250px;
+  height: calc(100vh - 60px);
+  background: white;
+  padding: 20px;
+  box-shadow: -2px 0 5px rgba(0, 0, 0, 0.1);
+  overflow-y: auto;
+  transition: width 0.3s;
+  z-index: 1000;
+}
+
+.sidebar.collapsed {
+  width: 50px;
+}
+
+.sidebar-content {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.search-section {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.platform-select {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.platform-select label {
+  color: #1890ff;
+  font-weight: 500;
+}
+
+.platform-select select {
+  padding: 0.8rem;
+  border: 1px solid #d9d9d9;
+  border-radius: 8px;
+  background-color: white;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: border-color 0.3s;
+}
+
+.platform-select select:hover,
+.platform-select select:focus {
+  border-color: #1890ff;
+  outline: none;
+}
+
+.search-box {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.search-box input {
+  padding: 0.8rem;
+  border: 1px solid #d9d9d9;
+  border-radius: 8px;
+  font-size: 1rem;
+  transition: all 0.3s;
+}
+
+.search-box input:focus {
+  border-color: #1890ff;
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.2);
+}
+
+.search-box button {
+  padding: 0.8rem;
+  border: none;
+  border-radius: 8px;
+  background-color: #1890ff;
+  color: white;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: background-color 0.3s;
+}
+
+.search-box button:hover:not(:disabled) {
+  background-color: #40a9ff;
+}
+
+.search-box button:disabled {
+  background-color: #d9d9d9;
+  cursor: not-allowed;
+}
+
+.platform-status {
+  margin-bottom: 20px;
+}
+
+.platform-status h3 {
+  margin-bottom: 15px;
+  color: #333;
+  font-size: 16px;
+}
+
+.platform-item {
+  padding: 15px;
+  border: 1px solid #e8e8e8;
+  border-radius: 8px;
+  margin-bottom: 15px;
+}
+
+.platform-header {
+  display: flex;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.platform-logo {
+  width: 24px;
+  height: 24px;
+  margin-right: 10px;
+  object-fit: contain;
+}
+
+.login-status {
+  display: flex;
+  align-items: center;
+  margin-bottom: 10px;
+  color: #666;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 8px;
+  background: #ff4d4f;
+}
+
+.status-dot.logged-in {
+  background: #52c41a;
+}
+
+.login-button {
+  width: 100%;
+  padding: 8px;
+  background: #1890ff;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  text-align: center;
+  text-decoration: none;
+  transition: all 0.3s;
+}
+
+.login-button:hover:not(:disabled) {
+  background: #40a9ff;
+}
+
+.login-button:disabled {
+  background: #d9d9d9;
+  cursor: not-allowed;
+}
+
+.collapse-btn {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  background: none;
+  border: none;
+  font-size: 24px;
+  cursor: pointer;
+  color: #666;
+}
+
+/* 内容区域样式 */
+.content {
+  flex: 1;
+  padding: 2rem;
+  overflow-y: auto;
+  position: relative;
+  z-index: 1;
+}
+
+/* 搜索结果样式 */
+.search-results {
+  padding: 20px;
+  margin-right: 250px;
+  transition: margin-right 0.3s;
+}
+
+.sidebar.collapsed + .content .search-results {
+  margin-right: 50px;
+}
+
+.platform-section {
+  margin-bottom: 30px;
+}
+
+.platform-section h3 {
+  font-size: 18px;
+  color: #333;
+  margin-bottom: 20px;
+  padding-left: 10px;
+  border-left: 4px solid #1890ff;
+}
+
 .results-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-  gap: 1.5rem;
-  padding: 1rem;
+  gap: 20px;
+  padding: 20px 0;
 }
 
 .result-card {
-  position: relative;
   background: white;
   border-radius: 8px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   overflow: hidden;
-  transition: transform 0.2s;
-}
-
-.result-card:hover {
-  transform: translateY(-5px);
+  position: relative;
 }
 
 .platform-tag {
@@ -765,8 +1039,6 @@ export default {
   border-radius: 4px;
   color: white;
   font-size: 12px;
-  font-weight: bold;
-  z-index: 1;
 }
 
 .platform-tag.taobao {
@@ -777,150 +1049,123 @@ export default {
   background-color: #e1251b;
 }
 
+.platform-tag.top20 {
+  background-color: #1890ff;
+}
+
 .product-image {
   width: 100%;
   height: 200px;
   object-fit: contain;
   background-color: #f5f5f5;
-  border-bottom: 1px solid #eee;
 }
 
 .product-info {
-  padding: 1rem;
+  padding: 15px;
 }
 
 .product-info h4 {
-  margin: 0 0 0.5rem;
-  font-size: 1rem;
+  margin: 0 0 10px;
+  font-size: 14px;
   line-height: 1.4;
-  height: 2.8em;
+  height: 40px;
   overflow: hidden;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
 }
 
-.price-info {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-top: 10px;
-}
-
 .price {
   color: #ff4400;
-  font-size: 1.2rem;
+  font-size: 18px;
   font-weight: bold;
-  margin: 0.5rem 0;
+  margin: 10px 0;
 }
 
-.history-btn {
-  padding: 5px 10px;
-  background-color: #f0f0f0;
-  border: 1px solid #ddd;
+.shop {
+  color: #666;
+  font-size: 12px;
+  margin-bottom: 10px;
+}
+
+.actions {
+  display: flex;
+  gap: 10px;
+}
+
+.view-btn, .history-btn {
+  flex: 1;
+  padding: 8px;
+  border: none;
   border-radius: 4px;
   cursor: pointer;
-  font-size: 12px;
-}
-
-.history-btn:hover {
-  background-color: #e0e0e0;
-}
-
-.shop, .location, .sales {
-  color: #666;
-  font-size: 0.9rem;
-  margin: 0.3rem 0;
+  font-size: 14px;
+  text-align: center;
+  text-decoration: none;
+  transition: all 0.3s;
 }
 
 .view-btn {
-  display: inline-block;
-  margin-top: 0.5rem;
-  padding: 0.5rem 1rem;
-  background-color: #1890ff;
+  background: #1890ff;
   color: white;
-  text-decoration: none;
-  border-radius: 4px;
-  transition: background-color 0.2s;
 }
 
 .view-btn:hover {
-  background-color: #40a9ff;
+  background: #40a9ff;
 }
 
-.price-history-modal {
+.history-btn {
+  background: #f0f0f0;
+  color: #666;
+}
+
+.history-btn:hover {
+  background: #e0e0e0;
+}
+
+/* 加载和错误状态 */
+.loading, .no-results {
+  text-align: center;
+  padding: 40px;
+  color: #666;
+}
+
+.error-message {
+  color: #ff4d4f;
+  padding: 10px;
+  margin-bottom: 10px;
+  background: #fff2f0;
+  border: 1px solid #ffccc7;
+  border-radius: 4px;
+}
+
+/* 价格历史弹窗 */
+.price-modal {
   position: fixed;
   top: 0;
   left: 0;
-  width: 100%;
-  height: 100%;
-  background-color: rgba(0, 0, 0, 0.5);
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
   display: flex;
-  justify-content: center;
   align-items: center;
+  justify-content: center;
   z-index: 1000;
 }
 
 .modal-content {
-  background-color: white;
+  background: white;
   padding: 20px;
   border-radius: 8px;
   width: 80%;
   max-width: 800px;
-}
-
-.price-chart {
-  width: 100%;
-  height: 400px;
-  margin: 20px 0;
+  position: relative;
 }
 
 .close-btn {
-  display: block;
-  margin: 0 auto;
-  padding: 8px 16px;
-  background-color: #4CAF50;
-  color: white;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.close-btn:hover {
-  background-color: #45a049;
-}
-
-/* 弹窗样式 */
-.qr-modal {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background-color: rgba(0, 0, 0, 0.5);
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  z-index: 1000;
-}
-
-.qr-content {
-  background: white;
-  padding: 20px;
-  border-radius: 8px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-  position: relative;
-  width: 300px;
-}
-
-.modal-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 15px;
-}
-
-.close-button {
+  position: absolute;
+  top: 10px;
+  right: 10px;
   background: none;
   border: none;
   font-size: 24px;
@@ -928,41 +1173,7 @@ export default {
   color: #666;
 }
 
-.close-button:hover {
-  color: #000;
-}
-
-/* 过渡动画 */
-.modal-enter-active, .modal-leave-active {
-  transition: all 0.3s ease;
-}
-
-.modal-enter-from, .modal-leave-to {
-  opacity: 0;
-  transform: scale(0.8);
-}
-
-.modal-enter-to, .modal-leave-from {
-  opacity: 1;
-  transform: scale(1);
-}
-
-/* 二维码容器样式 */
-.qr-container {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  min-height: 200px;
-  margin: 15px 0;
-}
-
-.loading-text {
-  font-size: 16px;
-  color: #666;
-}
-
-.qr-container img {
-  max-width: 100%;
-  height: auto;
+.price-chart {
+  height: 400px;
 }
 </style>
