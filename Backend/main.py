@@ -2,6 +2,7 @@ from flask import Blueprint, Flask, request
 from flask_cors import CORS
 from taobao import taobao_bp
 from jd import jd_bp
+from item import item_bp
 import auth
 
 app = Flask(__name__)
@@ -26,6 +27,7 @@ CORS(app, resources={
 app.register_blueprint(taobao_bp, url_prefix='/api/taobao')
 app.register_blueprint(jd_bp, url_prefix='/api/jd')
 app.register_blueprint(auth.bp, url_prefix='/api/auth')
+app.register_blueprint(item_bp, url_prefix='/api/item')
 
 if __name__ == '__main__':
     print("启动服务器，监听端口5000...")

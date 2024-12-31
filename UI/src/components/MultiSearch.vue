@@ -112,7 +112,10 @@
               <img :src="item.image_url" :alt="item.title" class="product-image">
               <div class="product-info">
                 <h4>{{ item.title }}</h4>
-                <p class="price">¥{{ item.price }}</p>
+                <div class="price-info">
+                  <span class="price">￥{{ item.price }}</span>
+                  <button @click="showPriceHistory(item, 'taobao')" class="history-btn">查看历史价格</button>
+                </div>
                 <p class="shop">{{ item.shop_name }}</p>
                 <p class="location">{{ item.location }}</p>
                 <p class="sales">月销 {{ item.sales }}</p>
@@ -132,7 +135,10 @@
               <img :src="item.image_url" :alt="item.title" class="product-image">
               <div class="product-info">
                 <h4>{{ item.title }}</h4>
-                <p class="price">¥{{ item.price }}</p>
+                <div class="price-info">
+                  <span class="price">￥{{ item.price }}</span>
+                  <button @click="showPriceHistory(item, 'jd')" class="history-btn">查看历史价格</button>
+                </div>
                 <p class="shop">{{ item.shop_name }}</p>
                 <p class="location">{{ item.location }}</p>
                 <p class="sales">月销 {{ item.sales }}</p>
@@ -159,6 +165,15 @@
             <p>请使用京东APP扫码登录</p>
           </div>
         </div>
+
+        <!-- 历史价格弹窗 -->
+        <div v-if="showPriceModal" class="price-history-modal">
+          <div class="modal-content">
+            <h3>商品历史价格</h3>
+            <div class="price-chart" ref="priceChart"></div>
+            <button @click="closePriceModal" class="close-btn">关闭</button>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -166,6 +181,13 @@
 
 <script>
 import axios from 'axios'
+import * as echarts from 'echarts'
+
+// 创建axios实例
+const api = axios.create({
+  baseURL: 'http://localhost:5000',
+  withCredentials: true
+})
 
 export default {
   name: 'MultiSearch',
@@ -199,7 +221,10 @@ export default {
       showJdQrCode: false,
       jdQrCode: null,
       jdCheckLoginInterval: null,
-      top20Results: null
+      top20Results: null,
+      showPriceModal: false,
+      priceChart: null,
+      currentItemPrice: null
     }
   },
   computed: {
@@ -223,7 +248,7 @@ export default {
           return
         }
 
-        const response = await axios.get('http://localhost:5000/api/auth/verify', {
+        const response = await api.get('/api/auth/verify', {
           headers: {
             'Authorization': `Bearer ${token}`
           }
@@ -342,7 +367,7 @@ export default {
         return
       }
       try {
-        const response = await axios.post('http://localhost:5000/api/taobao/search_taobao', {
+        const response = await api.post('/api/taobao/search_taobao', {
           keyword: this.keyword
         }, {
           headers: {
@@ -375,7 +400,7 @@ export default {
         return
       }
       try {
-        const response = await axios.post('http://localhost:5000/api/jd/search', {
+        const response = await api.post('/api/jd/search', {
           keyword: this.keyword
         }, {
           headers: {
@@ -404,7 +429,7 @@ export default {
       if (this.taobaoLoggingIn) return
       this.taobaoLoggingIn = true
       try {
-        const response = await axios.get('http://localhost:5000/api/taobao/get_qr_code')
+        const response = await api.get('/api/taobao/get_qr_code')
         if (response.data.status === 'success') {
           this.taobaoSessionId = response.data.data.session_id
           this.taobaoQrCode = response.data.data.qr_code
@@ -422,14 +447,14 @@ export default {
                 this.taobaoLoggingIn = false
                 return
               }
-              const statusResponse = await axios.post('http://localhost:5000/api/taobao/check_login', {
+              const statusResponse = await api.post('/api/taobao/check_login', {
                 session_id: this.taobaoSessionId
               })
               if (statusResponse.data.status === 'success' && !accountSet) {
                 clearInterval(this.taobaoCheckLoginInterval)
                 this.showTaobaoQrCode = false
                 try {
-                  const accountResponse = await axios.post('http://localhost:5000/api/taobao/SetAccount', {
+                  const accountResponse = await api.post('/api/taobao/SetAccount', {
                     message: 'new_session',
                     session_id: this.taobaoSessionId
                   })
@@ -464,7 +489,7 @@ export default {
       if (this.jdLoggingIn) return
       this.jdLoggingIn = true
       try {
-        const response = await axios.get('http://localhost:5000/api/jd/get_qr_code')
+        const response = await api.get('/api/jd/get_qr_code')
         if (response.data.status === 'success') {
           this.jdSessionId = response.data.data.session_id
           this.jdQrCode = response.data.data.qr_code_url
@@ -482,14 +507,14 @@ export default {
                 this.jdLoggingIn = false
                 return
               }
-              const statusResponse = await axios.post('http://localhost:5000/api/jd/check_login', {
+              const statusResponse = await api.post('/api/jd/check_login', {
                 session_id: this.jdSessionId
               })
               if (statusResponse.data.status === 'success' && !accountSet) {
                 clearInterval(this.jdCheckLoginInterval)
                 this.showJdQrCode = false
                 try {
-                  const accountResponse = await axios.post('http://localhost:5000/api/jd/SetAccount', {
+                  const accountResponse = await api.post('/api/jd/SetAccount', {
                     message: 'new_session',
                     session_id: this.jdSessionId
                   })
@@ -518,6 +543,72 @@ export default {
         console.error('获取京东二维码失败:', error)
         this.jdError = '登录失败，请重试'
         this.jdLoggingIn = false
+      }
+    },
+    async showPriceHistory (item, platform) {
+      try {
+        this.showPriceModal = true
+        console.log('Requesting price history for:', platform, item.id) // 添加调试日志
+        const response = await api.get(`/api/item/price-history/${platform}/${item.id}`)
+        console.log('Price history response:', response.data) // 添加调试日志
+
+        // 等待DOM更新后初始化图表
+        this.$nextTick(() => {
+          if (this.priceChart) {
+            this.priceChart.dispose()
+          }
+
+          const chartDom = this.$refs.priceChart
+          this.priceChart = echarts.init(chartDom)
+
+          const option = {
+            title: {
+              text: '商品价格走势',
+              left: 'center'
+            },
+            tooltip: {
+              trigger: 'axis',
+              formatter: '{b}: ￥{c}'
+            },
+            xAxis: {
+              type: 'category',
+              data: response.data.dates,
+              axisLabel: {
+                rotate: 45
+              }
+            },
+            yAxis: {
+              type: 'value',
+              axisLabel: {
+                formatter: '￥{value}'
+              }
+            },
+            series: [{
+              data: response.data.prices,
+              type: 'line',
+              smooth: true
+            }]
+          }
+
+          this.priceChart.setOption(option)
+        })
+      } catch (error) {
+        console.error('获取价格历史失败:', error)
+        let errorMessage = '获取价格历史数据失败'
+        if (error.response && error.response.data && error.response.data.error) {
+          errorMessage += ': ' + error.response.data.error
+        } else if (error.message) {
+          errorMessage += ': ' + error.message
+        }
+        alert(errorMessage)
+      }
+    },
+
+    closePriceModal () {
+      this.showPriceModal = false
+      if (this.priceChart) {
+        this.priceChart.dispose()
+        this.priceChart = null
       }
     }
   },
@@ -616,11 +707,31 @@ export default {
   -webkit-box-orient: vertical;
 }
 
+.price-info {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 10px;
+}
+
 .price {
   color: #ff4400;
   font-size: 1.2rem;
   font-weight: bold;
   margin: 0.5rem 0;
+}
+
+.history-btn {
+  padding: 5px 10px;
+  background-color: #f0f0f0;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.history-btn:hover {
+  background-color: #e0e0e0;
 }
 
 .shop, .location, .sales {
@@ -642,5 +753,47 @@ export default {
 
 .view-btn:hover {
   background-color: #40a9ff;
+}
+
+.price-history-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  background-color: white;
+  padding: 20px;
+  border-radius: 8px;
+  width: 80%;
+  max-width: 800px;
+}
+
+.price-chart {
+  width: 100%;
+  height: 400px;
+  margin: 20px 0;
+}
+
+.close-btn {
+  display: block;
+  margin: 0 auto;
+  padding: 8px 16px;
+  background-color: #4CAF50;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.close-btn:hover {
+  background-color: #45a049;
 }
 </style>
