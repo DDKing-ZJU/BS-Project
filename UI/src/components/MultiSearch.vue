@@ -27,9 +27,9 @@
                 v-if="platforms.taobao && !taobaoClientId"
                 @click="loginTaobao"
                 class="login-button"
-                :disabled="taobaoLoggingIn"
+                :disabled="taobaoLoading"
               >
-                {{ taobaoLoggingIn ? '登录中...' : '登录淘宝' }}
+                {{ taobaoLoading ? '登录中...' : '登录淘宝' }}
               </button>
               <span v-else-if="platforms.taobao && taobaoClientId" class="login-status">已登录</span>
             </div>
@@ -42,9 +42,9 @@
                 v-if="platforms.jd && !jdClientId"
                 @click="loginJd"
                 class="login-button"
-                :disabled="jdLoggingIn"
+                :disabled="jdLoading"
               >
-                {{ jdLoggingIn ? '登录中...' : '登录京东' }}
+                {{ jdLoading ? '登录中...' : '登录京东' }}
               </button>
               <span v-else-if="platforms.jd && jdClientId" class="login-status">已登录</span>
             </div>
@@ -149,22 +149,42 @@
         </div>
 
         <!-- 淘宝二维码弹窗 -->
-        <div v-if="showTaobaoQrCode" class="qr-modal">
-          <div class="qr-content">
-            <h3>淘宝登录</h3>
-            <img :src="taobaoQrCode" alt="淘宝二维码">
-            <p>请使用淘宝APP扫码登录</p>
+        <transition name="modal">
+          <div v-if="showTaobaoQrCode" class="qr-modal">
+            <div class="qr-content">
+              <div class="modal-header">
+                <h3>淘宝登录</h3>
+                <button class="close-button" @click="closeTaobaoLogin">&times;</button>
+              </div>
+              <div class="qr-container">
+                <div v-if="taobaoLoadingQr" class="loading-text">
+                  二维码加载中...
+                </div>
+                <img v-else :src="taobaoQrCode" alt="淘宝二维码">
+              </div>
+              <p>请使用淘宝APP扫码登录</p>
+            </div>
           </div>
-        </div>
+        </transition>
 
         <!-- 京东二维码弹窗 -->
-        <div v-if="showJdQrCode" class="qr-modal">
-          <div class="qr-content">
-            <h3>京东登录</h3>
-            <img :src="jdQrCode" alt="京东二维码">
-            <p>请使用京东APP扫码登录</p>
+        <transition name="modal">
+          <div v-if="showJdQrCode" class="qr-modal">
+            <div class="qr-content">
+              <div class="modal-header">
+                <h3>京东登录</h3>
+                <button class="close-button" @click="closeJdLogin">&times;</button>
+              </div>
+              <div class="qr-container">
+                <div v-if="jdLoadingQr" class="loading-text">
+                  二维码加载中...
+                </div>
+                <img v-else :src="jdQrCode" alt="京东二维码">
+              </div>
+              <p>请使用京东APP扫码登录</p>
+            </div>
           </div>
-        </div>
+        </transition>
 
         <!-- 历史价格弹窗 -->
         <div v-if="showPriceModal" class="price-history-modal">
@@ -201,8 +221,10 @@ export default {
       showTop20: false,
       keyword: '',
       loading: false,
-      taobaoLoggingIn: false,
-      jdLoggingIn: false,
+      taobaoLoading: false,
+      jdLoading: false,
+      taobaoLoadingQr: true,
+      jdLoadingQr: true,
       // 淘宝相关
       taobaoSessionId: null,
       taobaoClientId: localStorage.getItem('taobao_client_id'),
@@ -210,7 +232,7 @@ export default {
       taobaoError: null,
       needTaobaoLogin: false,
       showTaobaoQrCode: false,
-      taobaoQrCode: null,
+      taobaoQrCode: '',
       taobaoCheckLoginInterval: null,
       // 京东相关
       jdSessionId: null,
@@ -219,7 +241,7 @@ export default {
       jdError: null,
       needJdLogin: false,
       showJdQrCode: false,
-      jdQrCode: null,
+      jdQrCode: '',
       jdCheckLoginInterval: null,
       top20Results: null,
       showPriceModal: false,
@@ -363,7 +385,7 @@ export default {
       if (!this.taobaoClientId) {
         this.taobaoError = '请先登录淘宝'
         this.needTaobaoLogin = true
-        this.taobaoLoggingIn = false
+        this.taobaoLoading = false
         return
       }
       try {
@@ -396,7 +418,7 @@ export default {
       if (!this.jdClientId) {
         this.jdError = '请先登录京东'
         this.needJdLogin = true
-        this.jdLoggingIn = false
+        this.jdLoading = false
         return
       }
       try {
@@ -426,17 +448,21 @@ export default {
       }
     },
     async loginTaobao () {
-      if (this.taobaoLoggingIn) return
-      this.taobaoLoggingIn = true
+      this.taobaoLoading = true
+      this.showTaobaoQrCode = true // 立即显示弹窗
+      this.taobaoLoadingQr = true
+
       try {
         const response = await api.get('/api/taobao/get_qr_code')
         if (response.data.status === 'success') {
           this.taobaoSessionId = response.data.data.session_id
           this.taobaoQrCode = response.data.data.qr_code
-          this.showTaobaoQrCode = true
+          this.taobaoLoadingQr = false
           let retryCount = 0
           const maxRetries = 30
           let accountSet = false
+
+          // 开始轮询登录状态
           this.taobaoCheckLoginInterval = setInterval(async () => {
             try {
               retryCount++
@@ -444,7 +470,7 @@ export default {
                 clearInterval(this.taobaoCheckLoginInterval)
                 this.showTaobaoQrCode = false
                 this.taobaoError = '登录超时，请重试'
-                this.taobaoLoggingIn = false
+                this.taobaoLoading = false
                 return
               }
               const statusResponse = await api.post('/api/taobao/check_login', {
@@ -465,7 +491,7 @@ export default {
                     this.taobaoError = null
                     this.needTaobaoLogin = false
                   }
-                } catch (error) {
+            } catch (error) {
                   console.error('设置淘宝账号失败:', error)
                   this.taobaoError = '登录失败，请重试'
                 }
@@ -485,15 +511,18 @@ export default {
         this.taobaoLoggingIn = false
       }
     },
+
     async loginJd () {
-      if (this.jdLoggingIn) return
-      this.jdLoggingIn = true
+      this.jdLoading = true
+      this.showJdQrCode = true // 立即显示弹窗
+      this.jdLoadingQr = true
+
       try {
         const response = await api.get('/api/jd/get_qr_code')
         if (response.data.status === 'success') {
           this.jdSessionId = response.data.data.session_id
           this.jdQrCode = response.data.data.qr_code_url
-          this.showJdQrCode = true
+          this.jdLoadingQr = false
           let retryCount = 0
           const maxRetries = 30
           let accountSet = false
@@ -524,27 +553,46 @@ export default {
                     localStorage.setItem('jd_client_id', this.jdClientId)
                     this.needJdLogin = false
                     this.jdError = null
-                  }
-                } catch (error) {
-                  console.error('设置京东账号失败:', error)
-                  this.jdError = '登录失败，请重试'
-                }
               }
             } catch (error) {
+                  console.error('设置京东账号失败:', error)
+                  this.jdError = '登录失败，请重试'
+            }
+        }
+      } catch (error) {
               console.error('检查京东登录状态失败:', error)
             } finally {
               if (accountSet) {
-                this.jdLoggingIn = false
-              }
+                this.jdLoading = false
+      }
             }
           }, 2000)
         }
       } catch (error) {
         console.error('获取京东二维码失败:', error)
         this.jdError = '登录失败，请重试'
-        this.jdLoggingIn = false
+        this.jdLoading = false
       }
     },
+    
+    closeTaobaoLogin() {
+      this.showTaobaoQrCode = false
+      this.taobaoLoading = false
+      this.taobaoQrCode = ''
+      if (this.taobaoLoginInterval) {
+        clearInterval(this.taobaoLoginInterval)
+      }
+    },
+
+    closeJdLogin() {
+      this.showJdQrCode = false
+      this.jdLoading = false
+      this.jdQrCode = ''
+      if (this.jdLoginInterval) {
+        clearInterval(this.jdLoginInterval)
+      }
+    },
+
     async showPriceHistory (item, platform) {
       try {
         this.showPriceModal = true
@@ -557,40 +605,79 @@ export default {
           if (this.priceChart) {
             this.priceChart.dispose()
           }
-
           const chartDom = this.$refs.priceChart
-          this.priceChart = echarts.init(chartDom)
+          this.priceChart = echarts.init(chartDom, null, {
+            renderer: 'svg',
+            width: 'auto',
+            height: 'auto'
+          })
 
           const option = {
             title: {
               text: '商品价格走势',
-              left: 'center'
+              left: 'center',
+              textStyle: {
+                fontSize: 14
+              }
+            },
+            grid: {
+              top: 40,
+              right: 20,
+              bottom: 60,
+              left: 50,
+              containLabel: true
             },
             tooltip: {
               trigger: 'axis',
-              formatter: '{b}: ￥{c}'
+              formatter: '{b}: ￥{c}',
+              confine: true
             },
             xAxis: {
               type: 'category',
               data: response.data.dates,
               axisLabel: {
-                rotate: 45
+                rotate: 45,
+                fontSize: 10,
+                interval: 'auto'
               }
             },
             yAxis: {
               type: 'value',
               axisLabel: {
-                formatter: '￥{value}'
+                formatter: '￥{value}',
+                fontSize: 10
               }
             },
             series: [{
               data: response.data.prices,
               type: 'line',
-              smooth: true
+              smooth: true,
+              symbolSize: 6,
+              lineStyle: {
+                width: 2
+              }
             }]
           }
 
           this.priceChart.setOption(option)
+
+          // 添加窗口大小变化的响应处理函数
+          const handleResize = () => {
+            if (this.priceChart) {
+              this.priceChart.resize()
+            }
+          }
+
+          window.addEventListener('resize', handleResize)
+
+          // 在组件实例上保存清理函数
+          this._cleanupChart = () => {
+            window.removeEventListener('resize', handleResize)
+            if (this.priceChart) {
+              this.priceChart.dispose()
+              this.priceChart = null
+            }
+          }
         })
       } catch (error) {
         console.error('获取价格历史失败:', error)
@@ -614,6 +701,12 @@ export default {
   },
   mounted () {
     this.fetchUserInfo() // 组件加载时获取用户信息
+  },
+  beforeDestroy () {
+    // 清理图表相关资源
+    if (this._cleanupChart) {
+      this._cleanupChart()
+    }
   }
 }
 </script>
@@ -795,5 +888,81 @@ export default {
 
 .close-btn:hover {
   background-color: #45a049;
+}
+
+/* 弹窗样式 */
+.qr-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.qr-content {
+  background: white;
+  padding: 20px;
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+  position: relative;
+  width: 300px;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+.close-button {
+  background: none;
+  border: none;
+  font-size: 24px;
+  cursor: pointer;
+  color: #666;
+}
+
+.close-button:hover {
+  color: #000;
+}
+
+/* 过渡动画 */
+.modal-enter-active, .modal-leave-active {
+  transition: all 0.3s ease;
+}
+
+.modal-enter-from, .modal-leave-to {
+  opacity: 0;
+  transform: scale(0.8);
+}
+
+.modal-enter-to, .modal-leave-from {
+  opacity: 1;
+  transform: scale(1);
+}
+
+/* 二维码容器样式 */
+.qr-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 200px;
+  margin: 15px 0;
+}
+
+.loading-text {
+  font-size: 16px;
+  color: #666;
+}
+
+.qr-container img {
+  max-width: 100%;
+  height: auto;
 }
 </style>

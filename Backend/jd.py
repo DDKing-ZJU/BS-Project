@@ -357,7 +357,7 @@ def search(client_id, page, keyword):
                     
                     # 处理图片URL，避免双重https://
                     img_url = img_element.get_attribute('src') or img_element.get_attribute('data-lazy-img')
-                    print(img_url)
+                    # print(img_url)
                     if img_url.startswith('//'):
                         img_url = 'https:' + img_url
                     elif not img_url.startswith('http'):
@@ -367,7 +367,7 @@ def search(client_id, page, keyword):
                     try:
                         commit_element = item.find_element(By.CSS_SELECTOR, '.p-commit strong a')
                         # DEBUG
-                        print(commit_element.text)
+                        # print(commit_element.text)
                         # 直接获取评价数文本并处理
                         sales = commit_element.text.split('条评价')[0].strip()
                     except:

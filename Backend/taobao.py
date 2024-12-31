@@ -16,7 +16,6 @@ import uuid
 import requests
 import subprocess
 import re
-import winreg
 from selenium.common.exceptions import TimeoutException
 import base64
 from PIL import Image
@@ -510,7 +509,7 @@ def search_taobao():
                         db = SessionLocal()
         
                         save_product(db, 'taobao', {
-                            'item_id': item_id,
+                            'item_id': 'tb' + str(item_id),
                             'title': title,
                             'price': price,
                             'sales': sales,
