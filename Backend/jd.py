@@ -105,7 +105,7 @@ def get_qr_code():
     """获取京东登录二维码"""
     try:
         # 创建新的Chrome驱动
-        driver = create_chrome_driver(headless=False)
+        driver = create_chrome_driver(headless=True)
         
         # 访问京东登录页面
         driver.get('https://passport.jd.com/new/login.aspx')
@@ -295,7 +295,7 @@ def search(client_id, page, keyword):
         jd_page = (page * 2) - 1
         
         # 创建新的Chrome驱动
-        driver = create_chrome_driver(headless=False)
+        driver = create_chrome_driver(headless=True)
         
         try:
             # 设置cookies

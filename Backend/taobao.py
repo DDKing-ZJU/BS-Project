@@ -344,7 +344,7 @@ def search_taobao():
         update_session_activity(client_id)
 
         # 创建Chrome驱动
-        driver = create_chrome_driver(headless=False)
+        driver = create_chrome_driver(headless=True)
         try:
             # 先访问淘宝主页
             driver.get("https://www.taobao.com")

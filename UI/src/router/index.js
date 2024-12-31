@@ -5,6 +5,7 @@ import NewPage from '@/components/NewPage'
 import SendMessage from '@/components/SendMessage'
 import MultiSearch from '@/components/MultiSearch'
 import Auth from '@/components/Auth'
+import TrackingList from '@/components/TrackingList'
 
 Vue.use(Router)
 
@@ -34,6 +35,12 @@ const routes = [
     path: '/auth',
     name: 'Auth',
     component: Auth
+  },
+  {
+    path: '/tracking',
+    name: 'TrackingList',
+    component: TrackingList,
+    meta: { requiresAuth: true }
   }
 ]
 

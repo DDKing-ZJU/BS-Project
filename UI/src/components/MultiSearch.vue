@@ -61,7 +61,7 @@
 
           <div class="platform-status">
             <h3>平台状态</h3>
-            
+
             <!-- 淘宝状态 -->
             <div class="platform-item" v-if="selectedPlatform === 'both' || selectedPlatform === 'taobao'">
               <div class="platform-header">
@@ -135,6 +135,9 @@
                     <button @click="showPriceHistory(item, item.platform)" class="history-btn">
                       历史价格
                     </button>
+                    <button @click="trackItem(item, item.platform)" class="track-btn" v-if="isLoggedIn">
+                      {{ isTracking(item.item_id, item.platform) ? '取消跟踪' : '跟踪' }}
+                    </button>
                   </div>
                 </div>
               </div>
@@ -156,6 +159,9 @@
                     <a :href="item.item_url" target="_blank" class="view-btn">查看详情</a>
                     <button @click="showPriceHistory(item, 'taobao')" class="history-btn">
                       历史价格
+                    </button>
+                    <button @click="trackItem(item, 'taobao')" class="track-btn" v-if="isLoggedIn">
+                      {{ isTracking(item.item_id, 'taobao') ? '取消跟踪' : '跟踪' }}
                     </button>
                   </div>
                 </div>
@@ -179,6 +185,9 @@
                     <button @click="showPriceHistory(item, 'jd')" class="history-btn">
                       历史价格
                     </button>
+                    <button @click="trackItem(item, 'jd')" class="track-btn" v-if="isLoggedIn">
+                      {{ isTracking(item.item_id, 'jd') ? '取消跟踪' : '跟踪' }}
+                    </button>
                   </div>
                 </div>
               </div>
@@ -191,18 +200,20 @@
     <!-- 淘宝二维码弹窗 -->
     <transition name="modal">
       <div v-if="showTaobaoQrCode" class="qr-modal">
-        <div class="qr-content">
+        <div class="qr-modal-content">
           <div class="modal-header">
             <h3>淘宝登录</h3>
             <button class="close-button" @click="closeTaobaoLogin">&times;</button>
           </div>
-          <div class="qr-container">
+          <div class="qr-code-container">
             <div v-if="taobaoLoadingQr" class="loading-text">
               二维码加载中...
             </div>
             <img v-else :src="taobaoQrCode" alt="淘宝二维码">
           </div>
-          <p>请使用淘宝APP扫码登录</p>
+          <div class="modal-footer">
+            <p>请使用淘宝APP扫码登录</p>
+          </div>
         </div>
       </div>
     </transition>
@@ -210,30 +221,39 @@
     <!-- 京东二维码弹窗 -->
     <transition name="modal">
       <div v-if="showJdQrCode" class="qr-modal">
-        <div class="qr-content">
+        <div class="qr-modal-content">
           <div class="modal-header">
             <h3>京东登录</h3>
             <button class="close-button" @click="closeJdLogin">&times;</button>
           </div>
-          <div class="qr-container">
+          <div class="qr-code-container">
             <div v-if="jdLoadingQr" class="loading-text">
               二维码加载中...
             </div>
             <img v-else :src="jdQrCode" alt="京东二维码">
           </div>
-          <p>请使用京东APP扫码登录</p>
+          <div class="modal-footer">
+            <p>请使用京东APP扫码登录</p>
+          </div>
         </div>
       </div>
     </transition>
 
     <!-- 历史价格弹窗 -->
-    <div v-if="showPriceModal" class="price-history-modal">
-      <div class="modal-content">
-        <h3>商品历史价格</h3>
-        <div class="price-chart" ref="priceChart"></div>
-        <button @click="closePriceModal" class="close-btn">关闭</button>
+    <transition name="modal">
+      <div v-if="showPriceModal" class="qr-modal">
+        <div class="qr-modal-content price-modal-content">
+          <div class="modal-header">
+            <h3>商品历史价格</h3>
+            <button class="close-button" @click="closePriceModal">&times;</button>
+          </div>
+          <div class="price-chart" ref="priceChart"></div>
+          <div class="modal-footer">
+            <button @click="closePriceModal" class="primary-button">关闭</button>
+          </div>
+        </div>
       </div>
-    </div>
+    </transition>
   </div>
 </template>
 
@@ -288,7 +308,8 @@ export default {
       showPriceModal: false,
       priceChart: null,
       currentItemPrice: null,
-      sidebarCollapsed: false // 添加侧边栏折叠状态
+      sidebarCollapsed: false, // 添加侧边栏折叠状态
+      trackedItems: [] // 存储已跟踪的商品
     }
   },
   computed: {
@@ -732,9 +753,9 @@ export default {
         console.error('获取价格历史失败:', error)
         let errorMessage = '获取价格历史数据失败'
         if (error.response && error.response.data && error.response.data.error) {
-          errorMessage += ': ' + error.response.data.error
+          errorMessage = error.response.data.error
         } else if (error.message) {
-          errorMessage += ': ' + error.message
+          errorMessage = error.message
         }
         alert(errorMessage)
       }
@@ -749,10 +770,60 @@ export default {
     },
     toggleSidebar () {
       this.sidebarCollapsed = !this.sidebarCollapsed
+    },
+    async trackItem (item, platform) {
+      try {
+        const itemData = {
+          item_id: item.id,
+          platform: platform,
+          title: item.title,
+          current_price: item.price,
+          image_url: item.image_url,
+          item_url: item.item_url,
+          shop_name: item.shop_names
+        }
+
+        if (this.isTracking(item.id, platform)) {
+          // 取消跟踪
+          await axios.delete(`http://localhost:5000/api/tracking/${platform}/${item.id}`)
+          this.trackedItems = this.trackedItems.filter(
+            i => !(i.id === item.id && i.platform === platform)
+          )
+        } else {
+          // 添加跟踪
+          await axios.post('http://localhost:5000/api/tracking/add', itemData)
+          this.trackedItems.push(itemData)
+        }
+      } catch (error) {
+        console.error('跟踪操作失败:', error)
+        let errorMessage = '操作失败，请重试'
+        if (error.response && error.response.data && error.response.data.message) {
+          errorMessage = error.response.data.message
+        }
+        alert(errorMessage)
+      }
+    },
+
+    isTracking (itemId, platform) {
+      return this.trackedItems.some(
+        item => item.item_id === itemId && item.platform === platform
+      )
+    },
+
+    async fetchTrackedItems () {
+      try {
+        const response = await axios.get('http://localhost:5000/api/tracking/list')
+        this.trackedItems = response.data
+      } catch (error) {
+        console.error('获取跟踪列表失败:', error)
+      }
     }
   },
   mounted () {
     this.fetchUserInfo() // 组件加载时获取用户信息
+    if (this.isLoggedIn) {
+      this.fetchTrackedItems()
+    }
   },
   beforeDestroy () {
     // 清理图表相关资源
@@ -1091,9 +1162,10 @@ export default {
 .actions {
   display: flex;
   gap: 10px;
+  margin-top: 10px;
 }
 
-.view-btn, .history-btn {
+.view-btn, .history-btn, .track-btn {
   flex: 1;
   padding: 8px;
   border: none;
@@ -1123,6 +1195,15 @@ export default {
   background: #e0e0e0;
 }
 
+.track-btn {
+  background-color: #4CAF50;
+  color: white;
+}
+
+.track-btn:hover {
+  background-color: #45a049;
+}
+
 /* 加载和错误状态 */
 .loading, .no-results {
   text-align: center;
@@ -1139,8 +1220,8 @@ export default {
   border-radius: 4px;
 }
 
-/* 价格历史弹窗 */
-.price-modal {
+/* 弹窗样式 */
+.qr-modal {
   position: fixed;
   top: 0;
   left: 0;
@@ -1153,7 +1234,7 @@ export default {
   z-index: 1000;
 }
 
-.modal-content {
+.qr-modal-content {
   background: white;
   padding: 20px;
   border-radius: 8px;
@@ -1162,7 +1243,11 @@ export default {
   position: relative;
 }
 
-.close-btn {
+.price-modal-content {
+  max-width: 600px;
+}
+
+.close-button {
   position: absolute;
   top: 10px;
   right: 10px;
@@ -1171,6 +1256,47 @@ export default {
   font-size: 24px;
   cursor: pointer;
   color: #666;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.modal-header h3 {
+  margin: 0;
+}
+
+.qr-code-container {
+  text-align: center;
+  margin-bottom: 20px;
+}
+
+.loading-text {
+  font-size: 16px;
+  color: #666;
+}
+
+.modal-footer {
+  text-align: center;
+  margin-top: 20px;
+}
+
+.primary-button {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 4px;
+  background-color: #1890ff;
+  color: white;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background-color 0.3s;
+}
+
+.primary-button:hover {
+  background-color: #40a9ff;
 }
 
 .price-chart {

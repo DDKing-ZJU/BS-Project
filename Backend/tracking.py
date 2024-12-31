@@ -1,5 +1,5 @@
 from flask import Blueprint, request, jsonify
-from database import SessionLocal, User, TrackingItem, PriceHistory
+from database import SessionLocal, User, TrackingItem, TrackingPriceHistory, PriceHistory
 from datetime import datetime
 import smtplib
 from email.mime.text import MIMEText
@@ -50,8 +50,11 @@ def send_price_alert(user_email, item):
         print(f"发送邮件失败: {str(e)}")
         return False
 
-@tracking_bp.route('/items', methods=['GET'])
+@tracking_bp.route('/items', methods=['GET', 'OPTIONS'])
 def get_tracking_items():
+    if request.method == 'OPTIONS':
+        return '', 204
+        
     """获取用户追踪的所有商品"""
     username = request.headers.get('x-client-id')
     if not username:
@@ -80,90 +83,122 @@ def get_tracking_items():
     finally:
         db.close()
 
-@tracking_bp.route('/items', methods=['POST'])
-def add_tracking_item():
+@tracking_bp.route('/add', methods=['POST', 'OPTIONS'])
+def add_tracking():
     """添加追踪商品"""
-    username = request.headers.get('x-client-id')
-    if not username:
-        return jsonify({'success': False, 'message': '未登录'}), 401
-
-    data = request.json
-    db = SessionLocal()
+    if request.method == 'OPTIONS':
+        return '', 204
+        
     try:
-        # 检查是否已经在追踪
-        existing = db.query(TrackingItem).filter_by(
-            username=username,
-            url=data['url']
+        data = request.get_json()
+        print("Received data:", data)  # 打印接收到的数据
+        
+        db = SessionLocal()
+        
+        # 检查是否已经存在相同的商品
+        existing_item = db.query(TrackingItem).filter_by(
+            item_id=data['item_id'],
+            platform=data['platform']
         ).first()
         
-        if existing:
-            return jsonify({
-                'success': False,
-                'message': '该商品已在追踪列表中'
-            }), 400
-
-        item = TrackingItem(
-            username=username,
-            title=data['title'],
-            current_price=data['price'],
-            target_price=data['target_price'],
-            lowest_price=data['price'],
+        if existing_item:
+            return jsonify({'message': '该商品已在追踪列表中'}), 400
+            
+        # 创建新的追踪项
+        new_item = TrackingItem(
+            item_id=str(data['item_id']),  # 确保转换为字符串
             platform=data['platform'],
+            title=data['title'],
+            current_price=float(data['current_price']),  # 确保转换为浮点数
             image_url=data['image_url'],
-            url=data['url']
+            url=data['item_url'],
+            shop_name=data.get('shop_name', '')  # 使用 get 方法，提供默认值
         )
         
-        # 添加初始价格历史
-        history = PriceHistory(
-            price=data['price'],
-            date=datetime.now()
-        )
-        item.price_history.append(history)
-        
-        db.add(item)
+        db.add(new_item)
         db.commit()
         
-        return jsonify({
-            'success': True,
-            'message': '添加成功',
-            'item_id': item.id
-        })
+        return jsonify({'message': '添加成功', 'item': {
+            'id': new_item.id,
+            'item_id': new_item.item_id,
+            'platform': new_item.platform,
+            'title': new_item.title,
+            'current_price': float(new_item.current_price)
+        }}), 200
+    except KeyError as e:
+        print(f"Missing required field: {str(e)}")  # 打印缺失的字段
+        return jsonify({'error': f'缺少必要字段: {str(e)}'}), 400
+    except ValueError as e:
+        print(f"Value error: {str(e)}")  # 打印值错误
+        return jsonify({'error': f'数据格式错误: {str(e)}'}), 400
+    except Exception as e:
+        print(f"Unexpected error: {str(e)}")  # 打印意外错误
+        db.rollback()
+        return jsonify({'error': str(e)}), 500
     finally:
         db.close()
 
-@tracking_bp.route('/items/<int:item_id>', methods=['DELETE'])
-def delete_tracking_item(item_id):
+@tracking_bp.route('/<platform>/<item_id>', methods=['DELETE', 'OPTIONS'])
+def delete_tracking(platform, item_id):
     """删除追踪商品"""
-    username = request.headers.get('x-client-id')
-    if not username:
-        return jsonify({'success': False, 'message': '未登录'}), 401
-
-    db = SessionLocal()
+    if request.method == 'OPTIONS':
+        return '', 204
+        
     try:
+        db = SessionLocal()
+        # 查找匹配的商品
         item = db.query(TrackingItem).filter_by(
-            id=item_id,
-            username=username
+            platform=platform,
+            item_id=item_id
         ).first()
         
         if not item:
-            return jsonify({
-                'success': False,
-                'message': '商品不存在'
-            }), 404
-
+            return jsonify({'error': '未找到该商品'}), 404
+            
         db.delete(item)
         db.commit()
         
-        return jsonify({
-            'success': True,
-            'message': '删除成功'
-        })
+        return jsonify({'message': '删除成功'}), 200
+    except Exception as e:
+        db.rollback()
+        return jsonify({'error': str(e)}), 500
     finally:
         db.close()
 
-@tracking_bp.route('/target-price/<int:item_id>', methods=['PUT'])
+@tracking_bp.route('/list', methods=['GET', 'OPTIONS'])
+def get_tracking_list():
+    """获取用户的追踪列表"""
+    if request.method == 'OPTIONS':
+        return '', 204
+        
+    try:
+        db = SessionLocal()
+        tracking_items = db.query(TrackingItem).all()
+        
+        items_list = []
+        for item in tracking_items:
+            items_list.append({
+                'item_id': item.item_id,
+                'platform': item.platform,
+                'title': item.title,
+                'current_price': float(item.current_price),
+                'image_url': item.image_url,
+                'item_url': item.url,
+                'shop_name': item.shop_name
+            })
+        
+        return jsonify(items_list)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    finally:
+        db.close()
+
+@tracking_bp.route('/target-price/<int:item_id>', methods=['PUT', 'OPTIONS'])
 def update_target_price(item_id):
     """更新目标价格"""
+    if request.method == 'OPTIONS':
+        return '', 204
+        
     username = request.headers.get('x-client-id')
     if not username:
         return jsonify({'success': False, 'message': '未登录'}), 401
@@ -192,9 +227,12 @@ def update_target_price(item_id):
     finally:
         db.close()
 
-@tracking_bp.route('/email', methods=['POST'])
+@tracking_bp.route('/email', methods=['POST', 'OPTIONS'])
 def update_email():
     """更新用户邮箱"""
+    if request.method == 'OPTIONS':
+        return '', 204
+        
     username = request.headers.get('x-client-id')
     if not username:
         return jsonify({'success': False, 'message': '未登录'}), 401
@@ -225,29 +263,26 @@ def check_prices():
     try:
         items = db.query(TrackingItem).all()
         for item in items:
-            # 获取最新价格（这里需要实现具体的价格获取逻辑）
+            # 获取当前价格
             new_price = get_current_price(item)
+            if new_price is None:
+                continue
+                
+            # 更新商品价格
+            item.current_price = new_price
             
-            # 更新价格历史
-            history = PriceHistory(
-                item_id=item.id,
+            # 添加价格历史记录
+            history = TrackingPriceHistory(
+                tracking_item_id=item.id,
                 price=new_price,
                 date=datetime.now()
             )
             db.add(history)
             
-            # 更新商品当前价格和最低价
-            item.current_price = new_price
-            if new_price < item.lowest_price:
-                item.lowest_price = new_price
-            
-            # 如果价格低于目标价格，发送提醒
-            if new_price <= item.target_price:
-                user = db.query(User).filter_by(username=item.username).first()
-                if user and user.email:
-                    send_price_alert(user.email, item)
-        
         db.commit()
+    except Exception as e:
+        print(f"Error in check_prices: {str(e)}")
+        db.rollback()
     finally:
         db.close()
 

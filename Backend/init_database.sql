@@ -110,35 +110,35 @@ CREATE TABLE IF NOT EXISTS price_history (
     FOREIGN KEY (product_id) REFERENCES products(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- 先删除有外键依赖的表
+DROP TABLE IF EXISTS tracking_price_history;
+DROP TABLE IF EXISTS tracking_items;
+
 -- 创建追踪商品表
-CREATE TABLE IF NOT EXISTS tracking_items (
+CREATE TABLE tracking_items (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    username VARCHAR(50) NOT NULL,
-    product_id INT NOT NULL,
+    item_id VARCHAR(50) NOT NULL,
+    platform VARCHAR(50) NOT NULL,
     title VARCHAR(500) NOT NULL,
     current_price DECIMAL(10, 2) NOT NULL,
-    target_price DECIMAL(10, 2) NOT NULL,
-    lowest_price DECIMAL(10, 2) NOT NULL,
-    platform VARCHAR(50) NOT NULL,
     image_url TEXT,
     url TEXT NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    last_check TIMESTAMP,
+    shop_name VARCHAR(200),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    last_check DATETIME,
     is_active BOOLEAN DEFAULT TRUE,
-    FOREIGN KEY (username) REFERENCES users(username) ON DELETE CASCADE,
-    FOREIGN KEY (product_id) REFERENCES products(id),
-    INDEX idx_username (username)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    INDEX idx_item_platform (item_id, platform)
+);
 
 -- 创建追踪商品价格历史表
-CREATE TABLE IF NOT EXISTS tracking_price_history (
+CREATE TABLE tracking_price_history (
     id INT AUTO_INCREMENT PRIMARY KEY,
     tracking_item_id INT NOT NULL,
     price DECIMAL(10, 2) NOT NULL,
-    date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    date DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (tracking_item_id) REFERENCES tracking_items(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+);
 
 -- 插入基础平台数据
 INSERT IGNORE INTO platforms (name) VALUES ('taobao'), ('jd');

@@ -66,7 +66,6 @@ class Product(Base):
 
     platform = relationship("Platform", back_populates="products")
     price_history = relationship("PriceHistory", back_populates="product")
-    tracking_items = relationship("TrackingItem", back_populates="product")
 
 class PriceHistory(Base):
     __tablename__ = "price_history"
@@ -82,22 +81,18 @@ class TrackingItem(Base):
     __tablename__ = "tracking_items"
 
     id = Column(Integer, primary_key=True, index=True)
-    username = Column(String(50), ForeignKey("users.username"), nullable=False)
-    product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
+    item_id = Column(String(50), nullable=False)
+    platform = Column(String(50), nullable=False)
     title = Column(String(500), nullable=False)
     current_price = Column(Numeric(10, 2), nullable=False)
-    target_price = Column(Numeric(10, 2), nullable=False)
-    lowest_price = Column(Numeric(10, 2), nullable=False)
-    platform = Column(String(50), nullable=False)
     image_url = Column(Text)
     url = Column(Text, nullable=False)
+    shop_name = Column(String(200))
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     last_check = Column(DateTime)
     is_active = Column(Boolean, default=True)
-
-    user = relationship("User", backref="tracking_items", foreign_keys=[username])
-    product = relationship("Product", back_populates="tracking_items")
+    
     price_history = relationship("TrackingPriceHistory", backref="tracking_item", cascade="all, delete-orphan")
 
 class TrackingPriceHistory(Base):
